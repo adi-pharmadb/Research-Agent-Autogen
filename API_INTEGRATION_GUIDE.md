@@ -56,7 +56,22 @@ Submit a research question and get comprehensive AI-powered analysis.
 ```json
 {
   "question": "What are the latest advancements in AI for drug discovery?",
-  "file_ids": ["optional-file-1.pdf", "data.csv"]  // Optional
+  "file_ids": ["optional-file-1.pdf", "data.csv"],  // Optional
+  "conversation_history": [  // Optional - for multi-turn conversations
+    {
+      "role": "user",
+      "content": "Tell me about diabetes medications",
+      "timestamp": "2025-01-01T11:55:00Z",
+      "source": "user"
+    },
+    {
+      "role": "assistant", 
+      "content": "Here are the main classes of diabetes medications...",
+      "timestamp": "2025-01-01T11:55:15Z",
+      "source": "assistant"
+    }
+  ],
+  "system_prompt": "You are a regulatory affairs specialist with FDA experience. Focus on compliance and safety."  // Optional
 }
 ```
 
@@ -104,6 +119,7 @@ Submit a research question and get comprehensive AI-powered analysis.
 import httpx
 import asyncio
 from typing import List, Optional, Dict, Any
+from datetime import datetime
 
 class PharmaResearchClient:
     def __init__(self, base_url: str, timeout: int = 300):
@@ -117,11 +133,17 @@ class PharmaResearchClient:
             response.raise_for_status()
             return response.json()
     
-    async def research(self, question: str, file_ids: Optional[List[str]] = None) -> Dict[str, Any]:
+    async def research(self, question: str, file_ids: Optional[List[str]] = None, 
+                     conversation_history: Optional[List[Dict[str, Any]]] = None,
+                     system_prompt: Optional[str] = None) -> Dict[str, Any]:
         """Submit a research question and get AI-powered analysis"""
         payload = {"question": question}
         if file_ids:
             payload["file_ids"] = file_ids
+        if conversation_history:
+            payload["conversation_history"] = conversation_history
+        if system_prompt:
+            payload["system_prompt"] = system_prompt
         
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.post(
@@ -132,9 +154,63 @@ class PharmaResearchClient:
             response.raise_for_status()
             return response.json()
 
-# Usage in your main app
-async def handle_user_research_request(user_question: str, uploaded_files: List[str] = None):
+# Usage in your main app with conversation management
+class ConversationManager:
+    def __init__(self):
+        self.conversation_history = []
+    
+    def add_exchange(self, question: str, response: str):
+        """Add a question-response exchange to conversation history"""
+        timestamp = datetime.now().isoformat()
+        
+        self.conversation_history.extend([
+            {
+                "role": "user",
+                "content": question,
+                "timestamp": timestamp,
+                "source": "user"
+            },
+            {
+                "role": "assistant", 
+                "content": response,
+                "timestamp": timestamp,
+                "source": "assistant"
+            }
+        ])
+        
+        # Keep only last 20 exchanges (40 messages)
+        if len(self.conversation_history) > 40:
+            self.conversation_history = self.conversation_history[-40:]
+    
+    async def research_with_context(self, client: PharmaResearchClient, 
+                                  question: str, **kwargs):
+        """Research with automatic conversation history management"""
+        result = await client.research(
+            question=question,
+            conversation_history=self.conversation_history,
+            **kwargs
+        )
+        
+        if result.get("success"):
+            self.add_exchange(question, result["final_answer"])
+        
+        return result
+
+async def handle_user_research_request(user_question: str, 
+                                     uploaded_files: List[str] = None,
+                                     expertise_type: str = None,
+                                     conversation_manager: ConversationManager = None):
     client = PharmaResearchClient("https://pharmadb-research-agent-v1.onrender.com")
+    
+    # System prompts for different expertise types
+    EXPERTISE_PROMPTS = {
+        "regulatory": """You are a regulatory affairs specialist with FDA experience. 
+                        Focus on compliance, safety data interpretation, and submission requirements.""",
+        "clinical": """You are a clinical pharmacologist specializing in drug therapy. 
+                      Focus on efficacy, safety profiles, and clinical applications.""",
+        "economic": """You are a health economics specialist. 
+                      Focus on cost-effectiveness, market access, and economic value."""
+    }
     
     try:
         # Optional: Check service health first
@@ -142,8 +218,20 @@ async def handle_user_research_request(user_question: str, uploaded_files: List[
         if health["status"] != "healthy":
             return {"error": "Research service is not available"}
         
-        # Submit research request
-        result = await client.research(user_question, uploaded_files)
+        # Prepare request parameters
+        research_kwargs = {}
+        if uploaded_files:
+            research_kwargs["file_ids"] = uploaded_files
+        if expertise_type and expertise_type in EXPERTISE_PROMPTS:
+            research_kwargs["system_prompt"] = EXPERTISE_PROMPTS[expertise_type]
+        
+        # Submit research request with context if available
+        if conversation_manager:
+            result = await conversation_manager.research_with_context(
+                client, user_question, **research_kwargs
+            )
+        else:
+            result = await client.research(user_question, **research_kwargs)
         
         if result["success"]:
             return {
@@ -151,7 +239,8 @@ async def handle_user_research_request(user_question: str, uploaded_files: List[
                 "metadata": {
                     "processing_time": result["processing_time_seconds"],
                     "sources": result["sources_used"],
-                    "agent_steps": result["agent_steps"]
+                    "agent_steps": result["agent_steps"],
+                    "conversation_length": len(conversation_manager.conversation_history) if conversation_manager else 0
                 }
             }
         else:
@@ -163,7 +252,33 @@ async def handle_user_research_request(user_question: str, uploaded_files: List[
         return {"error": f"API error: {e.response.status_code}"}
     except Exception as e:
         return {"error": f"Unexpected error: {str(e)}"}
-```
+
+# Example usage patterns
+async def example_usage():
+    # 1. Simple one-off research
+    client = PharmaResearchClient("https://pharmadb-research-agent-v1.onrender.com")
+    result = await client.research("What are the side effects of metformin?")
+    
+    # 2. Research with specialized expertise
+    result = await client.research(
+        "Evaluate this clinical trial data",
+        file_ids=["trial_data.pdf"],
+        system_prompt="You are a regulatory affairs specialist. Focus on FDA submission requirements."
+    )
+    
+    # 3. Conversational research session
+    conversation = ConversationManager()
+    
+    # First question
+    result1 = await conversation.research_with_context(
+        client, "What are the main diabetes medications?"
+    )
+    
+    # Follow-up question (automatically includes conversation history)
+    result2 = await conversation.research_with_context(
+        client, "What about dosing for elderly patients?",
+        system_prompt="You are a geriatric pharmacist. Focus on age-related considerations."
+    )
 
 ### JavaScript/TypeScript (React/Node.js)
 
@@ -171,6 +286,15 @@ async def handle_user_research_request(user_question: str, uploaded_files: List[
 interface ResearchRequest {
   question: string;
   file_ids?: string[];
+  conversation_history?: ConversationMessage[];
+  system_prompt?: string;
+}
+
+interface ConversationMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp?: string;
+  source?: string;
 }
 
 interface ResearchResponse {
@@ -213,10 +337,21 @@ class PharmaResearchClient {
     return response.json();
   }
 
-  async research(question: string, fileIds?: string[]): Promise<ResearchResponse> {
+  async research(question: string, options?: {
+    fileIds?: string[];
+    conversationHistory?: ConversationMessage[];
+    systemPrompt?: string;
+  }): Promise<ResearchResponse> {
     const payload: ResearchRequest = { question };
-    if (fileIds) {
-      payload.file_ids = fileIds;
+    
+    if (options?.fileIds) {
+      payload.file_ids = options.fileIds;
+    }
+    if (options?.conversationHistory) {
+      payload.conversation_history = options.conversationHistory;
+    }
+    if (options?.systemPrompt) {
+      payload.system_prompt = options.systemPrompt;
     }
 
     const controller = new AbortController();
@@ -259,12 +394,12 @@ export const useResearch = () => {
 
   const client = new PharmaResearchClient(process.env.REACT_APP_RESEARCH_API_URL);
 
-  const submitResearch = useCallback(async (question: string, fileIds?: string[]) => {
+  const submitResearch = useCallback(async (question: string, fileIds: string[] = []) => {
     setLoading(true);
     setError(null);
     
     try {
-      const response = await client.research(question, fileIds);
+      const response = await client.research(question, { fileIds });
       setResult(response);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
@@ -275,7 +410,131 @@ export const useResearch = () => {
 
   return { loading, result, error, submitResearch };
 };
-```
+
+// Conversation Management Hook
+export const useConversationResearch = () => {
+  const [conversation, setConversation] = useState<ConversationMessage[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  
+  const client = new PharmaResearchClient(process.env.REACT_APP_RESEARCH_API_URL);
+
+  const addToConversation = (role: 'user' | 'assistant', content: string) => {
+    const message: ConversationMessage = {
+      role,
+      content,
+      timestamp: new Date().toISOString(),
+      source: role
+    };
+    
+    setConversation(prev => [...prev, message]);
+  };
+
+  const submitWithContext = async (
+    question: string, 
+    options?: { fileIds?: string[]; systemPrompt?: string }
+  ) => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      // Add user question to conversation
+      addToConversation('user', question);
+      
+      const response = await client.research(question, {
+        ...options,
+        conversationHistory: conversation
+      });
+      
+      if (response.success) {
+        // Add assistant response to conversation
+        addToConversation('assistant', response.final_answer);
+      }
+      
+      return response;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const clearConversation = () => {
+    setConversation([]);
+  };
+
+  return { 
+    conversation, 
+    loading, 
+    error, 
+    submitWithContext, 
+    clearConversation 
+  };
+};
+
+// Example Component using conversation context
+const ConversationalResearch = () => {
+  const { 
+    conversation, 
+    loading, 
+    error, 
+    submitWithContext, 
+    clearConversation 
+  } = useConversationResearch();
+  
+  const [question, setQuestion] = useState('');
+  const [systemPrompt, setSystemPrompt] = useState('');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!question.trim()) return;
+    
+    await submitWithContext(question, { 
+      systemPrompt: systemPrompt || undefined 
+    });
+    setQuestion('');
+  };
+
+  return (
+    <div className="conversation-research">
+      <div className="conversation-history">
+        {conversation.map((msg, idx) => (
+          <div key={idx} className={`message ${msg.role}`}>
+            <strong>{msg.role}:</strong> {msg.content}
+          </div>
+        ))}
+      </div>
+      
+      <form onSubmit={handleSubmit}>
+        <input
+          type="text"
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          placeholder="Ask a follow-up question..."
+          disabled={loading}
+        />
+        
+        <textarea
+          value={systemPrompt}
+          onChange={(e) => setSystemPrompt(e.target.value)}
+          placeholder="Optional: Specify expertise (e.g., 'You are a regulatory specialist...')"
+          rows={2}
+        />
+        
+        <button type="submit" disabled={loading}>
+          {loading ? 'Researching...' : 'Submit'}
+        </button>
+        
+        <button type="button" onClick={clearConversation}>
+          Clear History
+        </button>
+      </form>
+      
+      {error && <div className="error">{error}</div>}
+    </div>
+  );
+};
 
 ### cURL Examples
 
@@ -335,6 +594,192 @@ research_result = await client.research(
     file_ids=[file_id]
 )
 ```
+
+## 💬 Conversation History & System Prompts (New Features)
+
+### Overview
+The research API now supports **conversation history** and **custom system prompts** for more contextual and specialized interactions:
+
+- **Conversation History**: Maintain context across multiple research queries in a session
+- **System Prompts**: Customize agent expertise and response formatting
+
+### Conversation History
+
+**Use Cases:**
+- Multi-turn research sessions where follow-up questions build on previous answers
+- Maintaining context about specific drugs, studies, or research topics
+- Progressive deepening of research topics
+
+**Example: Multi-turn Diabetes Research**
+```python
+# First question - establish context
+first_response = await client.research("What are the main diabetes medications?")
+
+# Follow-up question with conversation history
+conversation_history = [
+    {
+        "role": "user",
+        "content": "What are the main diabetes medications?",
+        "timestamp": "2025-01-01T12:00:00Z"
+    },
+    {
+        "role": "assistant", 
+        "content": first_response["final_answer"],
+        "timestamp": "2025-01-01T12:00:15Z"
+    }
+]
+
+# Second question builds on context
+second_response = await client.research(
+    question="What about dosing for elderly patients?",
+    conversation_history=conversation_history
+)
+```
+
+**Benefits:**
+- The AI understands "elderly patients" refers to diabetes medication dosing
+- Responses reference previous discussion points
+- More natural, contextual conversation flow
+
+### System Prompts
+
+**Use Cases:**
+- **Regulatory Expertise**: FDA compliance, submission requirements
+- **Clinical Focus**: Safety profiles, efficacy analysis, patient outcomes  
+- **Economic Analysis**: Cost-effectiveness, market access considerations
+- **Research Methodology**: Study design, statistical analysis
+
+**Example: Regulatory Affairs Specialist**
+```python
+regulatory_system_prompt = """
+You are a senior regulatory affairs specialist with 15 years of FDA experience. 
+Focus on:
+- Regulatory compliance requirements
+- Safety data interpretation
+- Submission strategy recommendations
+- Potential FDA concerns and mitigation strategies
+- Required documentation for drug approvals
+"""
+
+response = await client.research(
+    question="Evaluate this clinical trial for FDA submission readiness",
+    file_ids=["phase3_results.pdf"],
+    system_prompt=regulatory_system_prompt
+)
+```
+
+**Example: Clinical Pharmacologist**
+```python
+clinical_system_prompt = """
+You are a clinical pharmacologist specializing in diabetes care.
+Provide evidence-based analysis focusing on:
+- Mechanism of action
+- Efficacy data and clinical outcomes
+- Safety profiles and contraindications
+- Drug interactions and clinical considerations
+- Patient selection criteria
+"""
+
+response = await client.research(
+    question="Compare efficacy of GLP-1 agonists vs insulin",
+    system_prompt=clinical_system_prompt
+)
+```
+
+### Combined Usage: Context + Expertise
+
+```python
+# Combine conversation history with specialized expertise
+conversation_with_expertise = await client.research(
+    question="How does this new data change our regulatory strategy?",
+    file_ids=["updated_safety_data.csv"],
+    conversation_history=previous_conversation,
+    system_prompt="You are a regulatory strategist. Focus on risk assessment and FDA submission timing."
+)
+```
+
+### Implementation Best Practices
+
+**Conversation History Management:**
+```python
+class ConversationManager:
+    def __init__(self):
+        self.history = []
+        
+    def add_exchange(self, user_question: str, assistant_response: str):
+        timestamp = datetime.now().isoformat()
+        
+        self.history.extend([
+            {
+                "role": "user",
+                "content": user_question, 
+                "timestamp": timestamp,
+                "source": "user"
+            },
+            {
+                "role": "assistant",
+                "content": assistant_response,
+                "timestamp": timestamp,
+                "source": "assistant"
+            }
+        ])
+        
+        # Keep only last 20 exchanges (40 messages) for performance
+        if len(self.history) > 40:
+            self.history = self.history[-40:]
+    
+    async def research_with_context(self, question: str, **kwargs):
+        response = await client.research(
+            question=question,
+            conversation_history=self.history,
+            **kwargs
+        )
+        
+        # Add to history
+        self.add_exchange(question, response["final_answer"])
+        return response
+```
+
+**System Prompt Templates:**
+```python
+SYSTEM_PROMPTS = {
+    "regulatory": """You are a regulatory affairs specialist with FDA experience. 
+                    Focus on compliance, safety, and submission requirements.""",
+    
+    "clinical": """You are a clinical researcher and physician. 
+                  Focus on patient safety, efficacy, and clinical applications.""",
+    
+    "economic": """You are a health economics specialist. 
+                  Focus on cost-effectiveness, market access, and economic value.""",
+    
+    "research": """You are a pharmaceutical research scientist. 
+                  Focus on mechanism of action, study design, and scientific rigor."""
+}
+
+# Usage
+response = await client.research(
+    question="Analyze this drug's market potential",
+    system_prompt=SYSTEM_PROMPTS["economic"]
+)
+```
+
+### Response Format Enhancements
+
+When using conversation history or system prompts, responses will include:
+
+- **Context Awareness**: "Continuing from our previous discussion..."
+- **Specialized Perspective**: "From a regulatory standpoint..."
+- **Reference to History**: Building upon previous points
+- **Targeted Analysis**: Focused on the specified expertise area
+
+### Limits and Considerations
+
+- **Conversation History**: Maximum 50 messages (typically 25 exchanges)
+- **System Prompt**: Maximum 2000 characters
+- **Performance**: Adding context may increase response time by 1-2 seconds
+- **Memory**: No persistent storage - history must be maintained client-side
+
+## 🔥 File Upload Integration
 
 ## ⚡ Error Handling Best Practices
 

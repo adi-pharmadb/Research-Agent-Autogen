@@ -29,6 +29,8 @@ An intelligent pharmaceutical research microservice powered by Microsoft AutoGen
 - ✅ **CSV Data Analysis** - SQL queries on uploaded files using DuckDB  
 - ✅ **PDF Document Processing** - Text extraction and analysis using pdfplumber
 - ✅ **Real Tool Integration** - All tools actively execute and provide real data
+- 🆕 **Conversation History** - Multi-turn contextual conversations with memory
+- 🆕 **Custom System Prompts** - Specialized expertise (regulatory, clinical, economic)
 
 ## 🚀 **LIVE API & Integration Ready**
 
@@ -56,17 +58,40 @@ curl https://pharmadb-research-agent-autogent.onrender.com/health
 ```python
 import httpx
 
-async def call_research_service(question: str, files: list = None):
+async def call_research_service(question: str, files: list = None, 
+                              conversation_history: list = None, 
+                              system_prompt: str = None):
     async with httpx.AsyncClient(timeout=300) as client:
+        payload = {"question": question}
+        if files:
+            payload["file_ids"] = files
+        if conversation_history:
+            payload["conversation_history"] = conversation_history
+        if system_prompt:
+            payload["system_prompt"] = system_prompt
+            
         response = await client.post(
             "https://pharmadb-research-agent-autogent.onrender.com/api/v1/research",
-            json={"question": question, "file_ids": files}
+            json=payload
         )
         return response.json()
 
-# Example usage
+# Simple research
 result = await call_research_service("What are the side effects of metformin?")
 print(result["final_answer"])  # Markdown-formatted research answer
+
+# Conversational research with specialized expertise
+conversation = [
+    {"role": "user", "content": "Tell me about diabetes medications"},
+    {"role": "assistant", "content": "Here are the main classes of diabetes medications..."}
+]
+
+contextual_result = await call_research_service(
+    question="What about dosing for elderly patients?",
+    conversation_history=conversation,
+    system_prompt="You are a geriatric pharmacist. Focus on age-related considerations."
+)
+print(contextual_result["final_answer"])  # Contextual, specialized response
 ```
 
 ### 3. **API Endpoints**

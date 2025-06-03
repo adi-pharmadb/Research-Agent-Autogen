@@ -200,6 +200,30 @@ components:
             type: string
           maxItems: 10
           example: ["research_paper.pdf", "drug_data.csv"]
+        conversation_history:
+          type: array
+          description: Previous conversation history for context. Helps maintain continuity in multi-turn conversations.
+          items:
+            $ref: '#/components/schemas/ConversationMessage'
+          maxItems: 50
+          example:
+            - role: "user"
+              content: "Tell me about metformin for diabetes treatment"
+              timestamp: "2025-01-01T12:00:00Z"
+              source: "user"
+            - role: "assistant"
+              content: "Metformin is a first-line medication for Type 2 diabetes..."
+              timestamp: "2025-01-01T12:00:05Z"
+              source: "assistant"
+        system_prompt:
+          type: string
+          description: |
+            Custom system prompt to override default agent behavior. Useful for:
+            - Domain-specific expertise (regulatory affairs, clinical research, etc.)
+            - Specialized response formatting requirements
+            - Custom analysis perspectives (safety, efficacy, cost-effectiveness)
+          maxLength: 2000
+          example: "You are a regulatory affairs specialist with 15 years of FDA experience. Analyze data with focus on regulatory compliance, safety profiles, and submission requirements."
 
     ResearchResponse:
       type: object
@@ -378,6 +402,33 @@ components:
           description: Human-readable error message
           example: "Question cannot be empty"
 
+    ConversationMessage:
+      type: object
+      required:
+        - role
+        - content
+      properties:
+        role:
+          type: string
+          enum: ["user", "assistant", "system"]
+          description: Role of the message sender
+          example: "user"
+        content:
+          type: string
+          description: Content of the message
+          minLength: 1
+          maxLength: 10000
+          example: "What are the side effects of metformin?"
+        timestamp:
+          type: string
+          format: date-time
+          description: When the message was sent (optional)
+          example: "2025-01-01T12:00:00Z"
+        source:
+          type: string
+          description: Source/name of the agent that sent this message (optional)
+          example: "user"
+
   examples:
     SimpleResearchRequest:
       summary: Simple research question
@@ -390,10 +441,46 @@ components:
         question: "Analyze the drug data for diabetes medications"
         file_ids: ["diabetes_drugs.csv", "clinical_trial.pdf"]
 
-    ComplexResearchRequest:
-      summary: Complex multi-part question
+    ConversationContextRequest:
+      summary: Follow-up question with conversation history
       value:
-        question: "Compare the efficacy and safety profiles of GLP-1 agonists vs traditional insulin therapy for Type 2 diabetes management"
+        question: "What about the dosage recommendations for elderly patients?"
+        conversation_history:
+          - role: "user"
+            content: "Tell me about metformin for diabetes treatment"
+            timestamp: "2025-01-01T12:00:00Z"
+            source: "user"
+          - role: "assistant"
+            content: "Metformin is a first-line medication for Type 2 diabetes that works by decreasing glucose production in the liver and improving insulin sensitivity. Common side effects include gastrointestinal issues like nausea and diarrhea."
+            timestamp: "2025-01-01T12:00:05Z"
+            source: "assistant"
+
+    SpecializedExpertiseRequest:
+      summary: Custom system prompt for regulatory expertise
+      value:
+        question: "Evaluate this clinical trial data for FDA submission"
+        file_ids: ["phase3_trial.pdf"]
+        system_prompt: "You are a regulatory affairs specialist with 15 years of FDA experience. Focus on regulatory compliance, safety profiles, and submission requirements. Highlight potential FDA concerns and provide specific guidance on documentation needs."
+
+    ComplexResearchRequest:
+      summary: Multi-turn conversation with specialized analysis
+      value:
+        question: "How does this compare to our previous discussion about alternative treatments?"
+        file_ids: ["comparative_study.csv"]
+        conversation_history:
+          - role: "user"
+            content: "What are the current treatment options for Type 2 diabetes?"
+            timestamp: "2025-01-01T11:50:00Z"
+          - role: "assistant"  
+            content: "Current Type 2 diabetes treatments include metformin as first-line therapy, followed by sulfonylureas, DPP-4 inhibitors, GLP-1 agonists, and insulin..."
+            timestamp: "2025-01-01T11:50:15Z"
+          - role: "user"
+            content: "Tell me more about the newer GLP-1 agonists"
+            timestamp: "2025-01-01T11:55:00Z"
+          - role: "assistant"
+            content: "GLP-1 receptor agonists like semaglutide and liraglutide offer excellent glycemic control with weight loss benefits..."
+            timestamp: "2025-01-01T11:55:20Z"
+        system_prompt: "You are a clinical pharmacologist specializing in diabetes care. Provide evidence-based comparisons with focus on efficacy, safety, and patient outcomes."
 
 tags:
   - name: Research

@@ -25,16 +25,79 @@ app.add_middleware(
 )
 
 # Request Models
-class ResearchRequest(BaseModel):
-    question: str = Field(..., description="Natural language research question", min_length=1)
-    file_ids: Optional[List[str]] = Field(default=None, description="Optional list of file IDs from Supabase storage")
+class ConversationMessage(BaseModel):
+    role: str = Field(..., description="Role of the message sender", pattern="^(user|assistant|system)$")
+    content: str = Field(..., description="Content of the message")
+    timestamp: Optional[datetime] = Field(default=None, description="When the message was sent")
+    source: Optional[str] = Field(default=None, description="Source/name of the agent that sent this message")
     
     class Config:
         json_schema_extra = {
             "example": {
-                "question": "What are the latest advancements in AI for drug discovery?",
-                "file_ids": ["research_paper.pdf", "drug_data.csv"]
+                "role": "user",
+                "content": "What are the side effects of metformin?",
+                "timestamp": "2025-01-01T12:00:00Z",
+                "source": "user"
             }
+        }
+
+class ResearchRequest(BaseModel):
+    question: str = Field(..., description="Natural language research question", min_length=1)
+    file_ids: Optional[List[str]] = Field(default=None, description="Optional list of file IDs from Supabase storage")
+    conversation_history: Optional[List[ConversationMessage]] = Field(
+        default=None, 
+        description="Previous conversation history for context. Helps maintain continuity in multi-turn conversations.",
+        max_items=50
+    )
+    system_prompt: Optional[str] = Field(
+        default=None,
+        description="Custom system prompt to override default agent behavior. Useful for domain-specific expertise or response formatting.",
+        max_length=2000
+    )
+    
+    class Config:
+        json_schema_extra = {
+            "examples": [
+                {
+                    "summary": "Simple research question",
+                    "value": {
+                        "question": "What are the latest advancements in AI for drug discovery?"
+                    }
+                },
+                {
+                    "summary": "Research with file analysis",
+                    "value": {
+                        "question": "Analyze the drug data for diabetes medications",
+                        "file_ids": ["diabetes_drugs.csv", "clinical_trial.pdf"]
+                    }
+                },
+                {
+                    "summary": "Contextual conversation with history",
+                    "value": {
+                        "question": "What about the dosage recommendations for elderly patients?",
+                        "conversation_history": [
+                            {
+                                "role": "user",
+                                "content": "Tell me about metformin for diabetes treatment",
+                                "timestamp": "2025-01-01T12:00:00Z"
+                            },
+                            {
+                                "role": "assistant", 
+                                "content": "Metformin is a first-line medication for Type 2 diabetes...",
+                                "timestamp": "2025-01-01T12:00:05Z"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "summary": "Custom system prompt for specialized expertise",
+                    "value": {
+                        "question": "Evaluate this clinical trial data for regulatory submission",
+                        "file_ids": ["phase3_trial.pdf"],
+                        "system_prompt": "You are a regulatory affairs specialist with 15 years of FDA experience. Analyze data with focus on regulatory compliance, safety profiles, and submission requirements. Provide specific guidance on potential FDA concerns and recommended documentation."
+                    }
+                }
+            ]
         }
 
 # Response Models
@@ -166,7 +229,9 @@ async def research_endpoint(request: ResearchRequest):
         # Execute the research flow with detailed tracking
         research_result = await run_research_flow_with_tracking(
             question=request.question,
-            file_ids=request.file_ids
+            file_ids=request.file_ids,
+            conversation_history=request.conversation_history,
+            system_prompt=request.system_prompt
         )
         
         # Build the response

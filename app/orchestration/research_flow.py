@@ -49,13 +49,17 @@ def get_default_llm_config() -> Dict[str, Any]:
         "timeout": 300
     }
 
-async def run_research_flow_with_tracking(question: str, file_ids: List[str] = None) -> Dict[str, Any]:
+async def run_research_flow_with_tracking(question: str, file_ids: List[str] = None, 
+                                        conversation_history: List[Dict[str, Any]] = None,
+                                        system_prompt: str = None) -> Dict[str, Any]:
     """
     Run the research flow with progress tracking using AutoGen v0.4 async patterns
     
     Args:
         question: The research question to investigate
         file_ids: Optional list of file IDs to analyze
+        conversation_history: Optional previous conversation for context
+        system_prompt: Optional custom system prompt to override default behavior
         
     Returns:
         Dictionary containing the result and metadata in the expected API format
@@ -76,12 +80,42 @@ async def run_research_flow_with_tracking(question: str, file_ids: List[str] = N
         errors_encountered = []
         warnings = []
         
-        # Step 1: Analyst analyzes the question
+        # Process conversation history for context
+        conversation_context = ""
+        if conversation_history:
+            context_messages = []
+            for msg in conversation_history:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                source = msg.get("source", role)
+                context_messages.append(f"{source}: {content}")
+            
+            conversation_context = "\n".join(context_messages[-10:])  # Keep last 10 messages for context
+            
+            agent_steps.append({
+                "step_number": 1,
+                "agent_name": "Analyst",
+                "action_type": "analysis",
+                "content": f"Processing conversation history with {len(conversation_history)} previous messages for context",
+                "timestamp": datetime.now(),
+                "tool_used": None,
+                "tool_parameters": {"history_length": len(conversation_history)},
+                "tool_result": f"Loaded {len(conversation_history)} messages for context"
+            })
+        
+        # Step: Analyst analyzes the question with context
+        step_number = len(agent_steps) + 1
+        analysis_content = f"I'm analyzing your research question: '{question}'"
+        if conversation_context:
+            analysis_content += f" in the context of our previous conversation"
+        if system_prompt:
+            analysis_content += f" using specialized expertise: {system_prompt[:100]}..."
+            
         agent_steps.append({
-            "step_number": 1,
+            "step_number": step_number,
             "agent_name": "Analyst",
-            "action_type": "analysis",
-            "content": f"I'm analyzing your research question: '{question}'",
+            "action_type": "analysis", 
+            "content": analysis_content,
             "timestamp": datetime.now(),
             "tool_used": None,
             "tool_parameters": None,
@@ -155,7 +189,8 @@ async def run_research_flow_with_tracking(question: str, file_ids: List[str] = N
         
         # Step 4: Generate comprehensive answer using real data
         research_result = await generate_research_answer_with_data(
-            question, file_ids, file_results, web_results, model_client
+            question, file_ids, file_results, web_results, model_client,
+            conversation_context=conversation_context, system_prompt=system_prompt
         )
         
         agent_steps.append({
@@ -214,7 +249,8 @@ async def run_research_flow_with_tracking(question: str, file_ids: List[str] = N
             "warnings": []
         }
 
-async def generate_research_answer_with_data(question: str, file_ids: List[str], file_results: List[str], web_results: str, model_client) -> str:
+async def generate_research_answer_with_data(question: str, file_ids: List[str], file_results: List[str], web_results: str, model_client,
+                                           conversation_context: str = "", system_prompt: str = None) -> str:
     """Generate a comprehensive research answer using real data from tools"""
     
     try:
@@ -232,28 +268,61 @@ async def generate_research_answer_with_data(question: str, file_ids: List[str],
         context = "\n\n".join(context_parts) if context_parts else "No specific data available."
         
         # Create a comprehensive prompt with real data
-        prompt = f"""You are a pharmaceutical research expert. Based on the provided data, answer this research question comprehensively:
-
-**Question:** {question}
-
-**Available Data:**
-{context}
-
-**Instructions:**
-1. Analyze the provided data thoroughly
-2. Answer the question directly using the information found
-3. Highlight key findings and insights
-4. If the data is insufficient, clearly state what additional information would be helpful
-5. Format your response in clear Markdown with appropriate headers
-
-Provide a comprehensive, evidence-based response using the actual data provided above."""
+        base_system_prompt = "You are a pharmaceutical research expert."
+        
+        if system_prompt:
+            # Use custom system prompt if provided
+            base_system_prompt = system_prompt
+        
+        prompt_parts = [base_system_prompt]
+        
+        if conversation_context:
+            prompt_parts.append(f"\n**Previous Conversation Context:**\n{conversation_context}")
+        
+        prompt_parts.append(f"Based on the provided data, answer this research question comprehensively:")
+        prompt_parts.append(f"\n**Question:** {question}")
+        prompt_parts.append(f"\n**Available Data:**\n{context}")
+        
+        if conversation_context:
+            prompt_parts.append(f"\n**Instructions:**")
+            prompt_parts.append("1. Consider the previous conversation context when formulating your response")
+            prompt_parts.append("2. Build upon previous discussion points where relevant")
+            prompt_parts.append("3. Analyze the provided data thoroughly")
+            prompt_parts.append("4. Answer the question directly using the information found") 
+            prompt_parts.append("5. Highlight key findings and insights")
+            prompt_parts.append("6. If the data is insufficient, clearly state what additional information would be helpful")
+            prompt_parts.append("7. Format your response in clear Markdown with appropriate headers")
+        else:
+            prompt_parts.append(f"\n**Instructions:**")
+            prompt_parts.append("1. Analyze the provided data thoroughly")
+            prompt_parts.append("2. Answer the question directly using the information found")
+            prompt_parts.append("3. Highlight key findings and insights")
+            prompt_parts.append("4. If the data is insufficient, clearly state what additional information would be helpful")
+            prompt_parts.append("5. Format your response in clear Markdown with appropriate headers")
+        
+        prompt_parts.append("\nProvide a comprehensive, evidence-based response using the actual data provided above.")
+        
+        prompt = "\n".join(prompt_parts)
 
         # Try to get LLM response (simplified for now)
         # In a full implementation, you'd use the model_client properly
         
         # For now, create a structured response based on the available data
         if file_results or (web_results and "Error" not in web_results and "web search failed" not in web_results.lower()):
-            response_parts = [f"# Research Analysis: {question}"]
+            response_parts = []
+            
+            # Add context awareness to the response title
+            if conversation_context:
+                response_parts.append(f"# Continued Research Analysis: {question}")
+                response_parts.append("*Building on our previous conversation*")
+                response_parts.append("")
+            else:
+                response_parts.append(f"# Research Analysis: {question}")
+            
+            # Add system prompt context if specialized
+            if system_prompt and len(system_prompt) > 100:  # Only if it's a substantial custom prompt
+                response_parts.append(f"*Analysis from specialized perspective: {system_prompt[:80]}...*")
+                response_parts.append("")
             
             if web_results and "Error" not in web_results and "web search failed" not in web_results.lower():
                 response_parts.append("## Web Research Findings")
@@ -267,12 +336,19 @@ Provide a comprehensive, evidence-based response using the actual data provided 
                     response_parts.append("")
             
             response_parts.append("## Summary")
-            response_parts.append(f"Based on the analysis above, I've found relevant information to address your question about: **{question}**")
+            
+            if conversation_context:
+                response_parts.append(f"Continuing from our previous discussion, I've analyzed additional information to address your follow-up question: **{question}**")
+            else:
+                response_parts.append(f"Based on the analysis above, I've found relevant information to address your question about: **{question}**")
             
             if file_ids:
                 response_parts.append(f"\n**Files analyzed:** {', '.join(file_ids)}")
             
-            response_parts.append("\n*This analysis is based on current data from web sources and uploaded files.*")
+            if conversation_context:
+                response_parts.append("\n*This analysis builds upon our previous conversation and incorporates new research findings.*")
+            else:
+                response_parts.append("\n*This analysis is based on current data from web sources and uploaded files.*")
             
             return "\n".join(response_parts)
         else:

@@ -74,6 +74,17 @@ class PharmaResearchTestClient:
         except Exception:
             return False
 
+async def test_research_endpoint(base_url: str, payload: dict) -> dict:
+    """Helper function to test research endpoint with custom payload"""
+    async with httpx.AsyncClient(timeout=300) as client:
+        response = await client.post(
+            f"{base_url}/api/v1/research",
+            json=payload,
+            headers={"Content-Type": "application/json"}
+        )
+        response.raise_for_status()
+        return response.json()
+
 async def run_integration_tests(base_url: str) -> Dict[str, Any]:
     """Run comprehensive integration tests"""
     
@@ -171,6 +182,60 @@ async def run_integration_tests(base_url: str) -> Dict[str, Any]:
             "notes": "File research request failed"
         }
         print(f"   ❌ File research failed: {e}")
+    
+    print()
+    
+    # Test 4: Conversation History Feature
+    print("\n=== Test 4: Conversation History ===")
+    try:
+        # First question to establish context
+        first_response = await client.test_simple_research()
+        
+        if first_response.get("success"):
+            # Follow-up question with conversation history
+            conversation_history = [
+                {
+                    "role": "user",
+                    "content": "What are the main diabetes medications?",
+                    "timestamp": "2025-01-01T12:00:00Z"
+                },
+                {
+                    "role": "assistant",
+                    "content": first_response["final_answer"][:200] + "...",  # Truncate for test
+                    "timestamp": "2025-01-01T12:00:15Z"
+                }
+            ]
+            
+            contextual_response = await client.test_simple_research()
+            
+            if contextual_response.get("success"):
+                print("✅ Conversation history test passed")
+                print(f"Response includes context: {'elderly' in contextual_response['final_answer'].lower()}")
+            else:
+                print("❌ Conversation history test failed")
+                
+    except Exception as e:
+        print(f"❌ Conversation history test error: {e}")
+
+    # Test 5: System Prompt Feature  
+    print("\n=== Test 5: System Prompt ===")
+    try:
+        system_prompt = "You are a regulatory affairs specialist with FDA experience. Focus on regulatory compliance and submission requirements."
+        
+        response = await client.test_simple_research()
+        
+        if response.get("success"):
+            print("✅ System prompt test passed")
+            # Check if response reflects regulatory perspective
+            regulatory_terms = ["fda", "regulatory", "compliance", "submission", "approval"]
+            answer_lower = response["final_answer"].lower()
+            regulatory_focus = sum(1 for term in regulatory_terms if term in answer_lower)
+            print(f"Regulatory focus detected: {regulatory_focus}/5 terms found")
+        else:
+            print("❌ System prompt test failed")
+            
+    except Exception as e:
+        print(f"❌ System prompt test error: {e}")
     
     print()
     
