@@ -2,10 +2,9 @@ fastapi
 uvicorn[standard]
 python-dotenv
 
-# AutoGen and its dependencies will be added later in Phase 2
-# autogen-agentchat
-# autogen-ext[openai]
+# AutoGen dependencies - using the correct new packages
 autogen-agentchat>=0.2.40
+autogen-ext[openai]>=0.2.40
 
 # Data tool dependencies
 # duckdb-engine  # For DuckDB, or direct duckdb if wasm isn't used via python

@@ -4,7 +4,7 @@ This module orchestrates the research flow using AutoGen agents.
 import json
 from typing import Union, List, Dict, Any
 from datetime import datetime
-from autogen import UserProxyAgent, ConversableAgent # Added ConversableAgent for explicit typing
+from autogen_agentchat import UserProxyAgent, ConversableAgent # Updated for new package structure
 import asyncio
 
 from app.agents.analyst_agent import AnalystAgent
