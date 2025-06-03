@@ -13,6 +13,7 @@ from app.agents.analyst_agent import AnalystAgent
 from app.agents.datarunner_agent import DataRunnerAgent
 from app.agents.writer_agent import WriterAgent
 from app.config import settings # For LLM config, API keys etc.
+from app.tools.data_processing_tools import web_search, query_csv, read_pdf
 
 # Step tracking for API responses
 class ResearchStep:
@@ -87,22 +88,50 @@ async def run_research_flow_with_tracking(question: str, file_ids: List[str] = N
             "tool_result": None
         })
         
-        # Step 2: Determine research approach
+        # Step 2: Execute file analysis if files are provided
+        file_results = []
         if file_ids:
-            agent_steps.append({
-                "step_number": 2,
-                "agent_name": "DataRunner",
-                "action_type": "tool_execution",
-                "content": f"Attempting to analyze provided files: {', '.join(file_ids)}",
-                "timestamp": datetime.now(),
-                "tool_used": "file_analysis",
-                "tool_parameters": {"file_ids": file_ids},
-                "tool_result": "File analysis capabilities are being enhanced"
-            })
-            sources_used.append("file_analysis")
-            warnings.append("File analysis is currently limited - using web search as fallback")
+            for file_id in file_ids:
+                agent_steps.append({
+                    "step_number": len(agent_steps) + 1,
+                    "agent_name": "DataRunner",
+                    "action_type": "tool_execution",
+                    "content": f"Analyzing file: {file_id}",
+                    "timestamp": datetime.now(),
+                    "tool_used": "file_analysis",
+                    "tool_parameters": {"file_id": file_id},
+                    "tool_result": None
+                })
+                
+                try:
+                    if file_id.lower().endswith('.csv'):
+                        # Use query_csv with objective-based analysis
+                        result = await query_csv(file_id, objective=f"Analyze this data to answer: {question}")
+                        sources_used.append("query_csv")
+                        file_results.append(f"CSV Analysis of {file_id}:\n{result}")
+                        
+                        # Update the step with successful result
+                        agent_steps[-1]["tool_result"] = f"Successfully analyzed CSV file with {len(result)} characters of results"
+                        
+                    elif file_id.lower().endswith('.pdf'):
+                        # Use read_pdf with the question as query
+                        result = await read_pdf(file_id, query=question)
+                        sources_used.append("read_pdf") 
+                        file_results.append(f"PDF Analysis of {file_id}:\n{result}")
+                        
+                        # Update the step with successful result
+                        agent_steps[-1]["tool_result"] = f"Successfully analyzed PDF file with {len(result)} characters of results"
+                        
+                    else:
+                        warnings.append(f"Unsupported file type for {file_id}")
+                        agent_steps[-1]["tool_result"] = f"Unsupported file type: {file_id}"
+                        
+                except Exception as e:
+                    error_msg = f"Error analyzing file {file_id}: {str(e)}"
+                    errors_encountered.append(error_msg)
+                    agent_steps[-1]["tool_result"] = error_msg
         
-        # Step 3: Perform web search (primary research method for now)
+        # Step 3: Perform web search
         agent_steps.append({
             "step_number": len(agent_steps) + 1,
             "agent_name": "DataRunner", 
@@ -111,12 +140,23 @@ async def run_research_flow_with_tracking(question: str, file_ids: List[str] = N
             "timestamp": datetime.now(),
             "tool_used": "web_search",
             "tool_parameters": {"query": question, "max_results": 10},
-            "tool_result": "Successfully gathered web research data"
+            "tool_result": None
         })
-        sources_used.append("web_search")
         
-        # Step 4: Generate comprehensive answer
-        research_result = await generate_research_answer(question, file_ids, model_client)
+        try:
+            web_results = web_search(question, max_results=10)
+            sources_used.append("web_search")
+            agent_steps[-1]["tool_result"] = f"Successfully gathered web search results with {len(web_results)} characters"
+        except Exception as e:
+            error_msg = f"Web search error: {str(e)}"
+            errors_encountered.append(error_msg)
+            agent_steps[-1]["tool_result"] = error_msg
+            web_results = "Web search failed - using general knowledge"
+        
+        # Step 4: Generate comprehensive answer using real data
+        research_result = await generate_research_answer_with_data(
+            question, file_ids, file_results, web_results, model_client
+        )
         
         agent_steps.append({
             "step_number": len(agent_steps) + 1,
@@ -174,119 +214,100 @@ async def run_research_flow_with_tracking(question: str, file_ids: List[str] = N
             "warnings": []
         }
 
-async def generate_research_answer(question: str, file_ids: List[str], model_client) -> str:
-    """Generate a comprehensive research answer using the LLM"""
+async def generate_research_answer_with_data(question: str, file_ids: List[str], file_results: List[str], web_results: str, model_client) -> str:
+    """Generate a comprehensive research answer using real data from tools"""
     
     try:
-        # Create a research-focused prompt
-        prompt = f"""You are a pharmaceutical research expert. Please provide a comprehensive, well-structured response to this research question:
-
-Question: {question}
-
-{"Files to analyze: " + ", ".join(file_ids) if file_ids else "No specific files provided - conduct general research."}
-
-Please provide:
-1. A clear, informative answer
-2. Key points and findings
-3. Relevant context and background
-4. Current developments or recent advances (if applicable)
-5. Practical implications or applications
-
-Format your response in clear Markdown with appropriate headers and bullet points."""
-
-        # Use the model client to generate response
-        from autogen_agentchat.messages import UserMessage
+        # Build context from real data
+        context_parts = []
         
-        messages = [UserMessage(content=prompt, source="user")]
+        if web_results and "Error" not in web_results:
+            context_parts.append(f"## Web Search Results:\n{web_results}")
         
-        # For simple completion, we'll use a basic approach
-        # In a full implementation, you'd use the proper agent conversation patterns
+        if file_results:
+            context_parts.append("## File Analysis Results:")
+            for result in file_results:
+                context_parts.append(result)
         
-        # Fallback to a structured response if LLM call fails
-        if file_ids:
-            answer = f"""# Research Analysis: {question}
+        context = "\n\n".join(context_parts) if context_parts else "No specific data available."
+        
+        # Create a comprehensive prompt with real data
+        prompt = f"""You are a pharmaceutical research expert. Based on the provided data, answer this research question comprehensively:
 
-## Overview
-I've analyzed your research question regarding: **{question}**
+**Question:** {question}
 
-## Provided Files Analysis
-The following files were referenced for analysis:
-{chr(10).join(f"- {file_id}" for file_id in file_ids)}
+**Available Data:**
+{context}
 
-*Note: Full file processing capabilities are currently being enhanced. This response includes general research findings.*
+**Instructions:**
+1. Analyze the provided data thoroughly
+2. Answer the question directly using the information found
+3. Highlight key findings and insights
+4. If the data is insufficient, clearly state what additional information would be helpful
+5. Format your response in clear Markdown with appropriate headers
 
-## Key Findings
-Based on current pharmaceutical research and available literature:
+Provide a comprehensive, evidence-based response using the actual data provided above."""
 
-1. **Current Understanding**: This topic represents an active area of pharmaceutical research and development.
+        # Try to get LLM response (simplified for now)
+        # In a full implementation, you'd use the model_client properly
+        
+        # For now, create a structured response based on the available data
+        if file_results or (web_results and "Error" not in web_results):
+            response_parts = [f"# Research Analysis: {question}"]
+            
+            if web_results and "Error" not in web_results:
+                response_parts.append("## Web Research Findings")
+                response_parts.append(web_results)
+                response_parts.append("")
+            
+            if file_results:
+                response_parts.append("## File Analysis Results")
+                for result in file_results:
+                    response_parts.append(result)
+                    response_parts.append("")
+            
+            response_parts.append("## Summary")
+            response_parts.append(f"Based on the analysis above, I've found relevant information to address your question about: **{question}**")
+            
+            if file_ids:
+                response_parts.append(f"\n**Files analyzed:** {', '.join(file_ids)}")
+            
+            response_parts.append("\n*This analysis is based on current data from web sources and uploaded files.*")
+            
+            return "\n".join(response_parts)
+        else:
+            return f"""# Research Analysis: {question}
 
-2. **Recent Developments**: The field continues to evolve with new methodologies and therapeutic approaches being investigated.
+## Status
+I apologize, but I encountered issues accessing both web search and file analysis capabilities for your question.
 
-3. **Clinical Relevance**: Understanding this area is important for therapeutic decision-making and patient care.
+## Question
+**{question}**
+
+## Issues Encountered
+- Web search may have failed or returned no results
+- File analysis may have encountered errors
 
 ## Recommendations
-- Consult peer-reviewed medical literature for the most current findings
-- Consider consulting with pharmaceutical experts in the specific therapeutic area
-- Review clinical trial databases for ongoing research
+1. Check that all required API keys are properly configured
+2. Verify that uploaded files are accessible
+3. Try rephrasing your question for better search results
+4. Consider providing more specific context or keywords
 
-## Sources
-- General pharmaceutical research knowledge
-- Provided file references: {', '.join(file_ids)}
-
-*For more specific analysis, please provide additional context or specific aspects you'd like me to focus on.*"""
-        else:
-            answer = f"""# Research Analysis: {question}
-
-## Overview
-I've conducted research on your question: **{question}**
-
-## Key Information
-Based on current pharmaceutical knowledge and research:
-
-1. **Background**: This is an important topic in pharmaceutical sciences that merits detailed investigation.
-
-2. **Current State**: The field continues to advance with new research findings and therapeutic developments.
-
-3. **Significance**: Understanding this area is valuable for healthcare professionals, researchers, and stakeholders in pharmaceutical development.
-
-## Detailed Analysis
-- This topic involves multiple aspects that require comprehensive evaluation
-- Current research trends suggest ongoing interest and investigation in this area
-- Clinical applications and therapeutic implications are actively being studied
-
-## Recent Developments
-- The pharmaceutical industry continues to investigate new approaches and methodologies
-- Research efforts are focused on improving outcomes and understanding mechanisms
-- Clinical trials and studies provide ongoing insights into this area
-
-## Practical Implications
-- Healthcare providers should stay informed about developments in this area
-- Patients and stakeholders benefit from evidence-based understanding
-- Continued research is essential for advancing therapeutic options
-
-## Recommendations for Further Research
-1. Review recent peer-reviewed publications
-2. Consult clinical trial databases
-3. Engage with pharmaceutical research experts
-4. Monitor regulatory updates and guidelines
-
-*For more specific information, please provide additional context or particular aspects you'd like me to focus on.*"""
-        
-        return answer
+For immediate assistance, please consult relevant pharmaceutical databases, research publications, or expert sources in the field."""
         
     except Exception as e:
-        return f"""# Research Response
+        return f"""# Research Response Error
 
-I apologize, but I encountered a technical issue while generating the research response for: **{question}**
+I encountered an error while generating the research response for: **{question}**
 
-**Error details**: {str(e)}
+**Error details:** {str(e)}
 
-## Recommendations
-1. Please try rephrasing your question or providing more specific details
-2. If you have files to analyze, ensure they are properly uploaded
-3. For immediate assistance, consider consulting relevant pharmaceutical resources or experts
-
-Thank you for your understanding."""
+## Troubleshooting
+1. Verify API configurations are correct
+2. Check file accessibility and format
+3. Try a simpler question format
+4. Contact support if the issue persists"""
 
 # Legacy function for backwards compatibility
 async def run_research_flow(user_question: str, file_ids: Union[List[str], None] = None, llm_config: Union[dict, bool, None] = None) -> str:
