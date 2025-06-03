@@ -302,23 +302,61 @@ async def generate_research_answer_with_data(question: str, file_ids: List[str],
         
         try:
             # Actually use the model_client to get a response
-            response = await model_client.chat.completions.create(
-                model="gpt-4",
-                messages=messages,
-                temperature=0.1,
-                max_tokens=2000
-            )
+            primary_model = "gpt-4-turbo"  # Or your specific "gpt-4.1" identifier
+            fallback_model = "gpt-4o"
             
-            # Extract the content from the response
-            if response and response.choices and len(response.choices) > 0:
-                analysis = response.choices[0].message.content
+            models_to_try = [primary_model, fallback_model]
+            analysis = None
+            last_error = None
+
+            for model_name in models_to_try:
+                print(f"[DEBUG] Attempting OpenAI API call with model: {model_name}")
+                print(f"[DEBUG] API key configured: {'Yes' if settings.OPENAI_API_KEY else 'No'}")
+                print(f"[DEBUG] API key length: {len(settings.OPENAI_API_KEY) if settings.OPENAI_API_KEY else 0}")
+                
+                try:
+                    response = await model_client.chat.completions.create(
+                        model=model_name,
+                        messages=messages,
+                        temperature=0.1,
+                        max_tokens=2000  # Consider adjusting if needed for different models
+                    )
+                    
+                    print(f"[DEBUG] OpenAI API call successful with model: {model_name}")
+                    
+                    if response and response.choices and len(response.choices) > 0:
+                        analysis = response.choices[0].message.content
+                        break  # Success, exit loop
+                    else:
+                        # This case should ideally not happen if API call was successful
+                        print(f"[WARNING] OpenAI API call with {model_name} seemed successful but returned no valid response.")
+                        last_error = Exception(f"No valid response from {model_name}")
+                
+                except Exception as model_error:
+                    print(f"[ERROR] OpenAI API call failed for model {model_name}: {str(model_error)}")
+                    print(f"[ERROR] Error type for {model_name}: {type(model_error)}")
+                    last_error = model_error
+                    if model_name == fallback_model: # If fallback also failed
+                        print(f"[ERROR] All model attempts failed. Last error: {str(last_error)}")
+            
+            if analysis:
                 return analysis
             else:
-                # Fallback if the response format is unexpected
+                # Fallback if the response format is unexpected or all attempts failed
+                error_message_for_user = f"I was unable to generate a comprehensive analysis due to a technical issue with the AI model. Last error: {str(last_error) if last_error else 'Unknown API issue'}."
+                if last_error:
+                    error_detail = str(last_error).lower()
+                    if "api key" in error_detail:
+                        error_message_for_user += " (Possible API key issue)"
+                    elif "rate limit" in error_detail:
+                        error_message_for_user += " (Possible rate limit issue)"
+                    elif "model not found" in error_detail or "does not exist" in error_detail:
+                         error_message_for_user += " (Possible model access/name issue)"
+                
                 return f"""# Research Analysis: {question}
 
 ## Analysis
-I was unable to generate a comprehensive analysis due to an issue with the AI model response format.
+{error_message_for_user}
 
 ## Question
 **{question}**
@@ -329,8 +367,18 @@ I was unable to generate a comprehensive analysis due to an issue with the AI mo
 
 Please try again or contact support if this issue persists."""
                 
-        except Exception as api_error:
-            print(f"Error calling LLM API: {str(api_error)}")
+        except Exception as api_error: # This outer catch is for broader issues before model attempts
+            print(f"[ERROR] OpenAI API call failed: {str(api_error)}")
+            print(f"[ERROR] Error type: {type(api_error)}")
+            
+            # Check if it's a specific OpenAI error and provide better guidance
+            error_message = str(api_error).lower()
+            if "api key" in error_message:
+                print(f"[ERROR] API Key issue detected")
+            elif "rate limit" in error_message:
+                print(f"[ERROR] Rate limit issue detected")
+            elif "model" in error_message:
+                print(f"[ERROR] Model access issue detected")
             
             # Fallback to a simplified analysis if the API call fails
             simplified_analysis_parts = []
