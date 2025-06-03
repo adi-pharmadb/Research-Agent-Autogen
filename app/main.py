@@ -164,9 +164,8 @@ async def research_endpoint(request: ResearchRequest):
         
         # Execute the research flow with detailed tracking
         research_result = await run_research_flow_with_tracking(
-            user_question=request.question,
-            file_ids=request.file_ids,
-            llm_config=llm_config
+            question=request.question,
+            file_ids=request.file_ids
         )
         
         # Build the response

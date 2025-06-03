@@ -1,0 +1,394 @@
+openapi: 3.0.3
+info:
+  title: PharmaDB Research Microservice API
+  description: |
+    AI-powered pharmaceutical research microservice using AutoGen multi-agent systems.
+    
+    This API provides intelligent research capabilities including:
+    - Natural language question processing
+    - CSV data analysis  
+    - PDF document processing
+    - Web search integration
+    - Multi-agent AI reasoning
+    
+    ## Authentication
+    Currently no authentication required (public API).
+    
+    ## Rate Limiting  
+    No enforced rate limits currently. Recommend client-side throttling.
+    
+    ## Timeouts
+    Requests may take up to 5 minutes for complex research queries.
+  version: 1.0.0
+  contact:
+    name: PharmaDB Research API
+    email: adi@pharmadb.ai
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://pharmadb-research-agent-v1.onrender.com
+    description: Production server
+  - url: http://localhost:8000  
+    description: Local development server
+
+paths:
+  /health:
+    get:
+      summary: Health Check
+      description: Check if the microservice is operational and properly configured
+      operationId: healthCheck
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: "healthy"
+                timestamp: "2025-01-01T12:00:00.000Z"
+                services:
+                  supabase: "connected"
+                  openai: "configured"
+                  tavily: "configured"
+        '503':
+          description: Service is unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/research:
+    post:
+      summary: Submit Research Question
+      description: |
+        Submit a natural language research question and get comprehensive AI analysis.
+        
+        The system will:
+        1. Analyze your question using AI agents
+        2. Determine appropriate research methods (web search, file analysis)
+        3. Execute research using available tools
+        4. Synthesize findings into a comprehensive answer
+        
+        **Response Time**: 10 seconds to 5 minutes depending on complexity
+        
+        **Examples**:
+        - "What are the side effects of metformin?"
+        - "Find all diabetes drugs in the uploaded dataset"
+        - "Analyze this clinical trial PDF for key findings"
+      operationId: submitResearch
+      tags:
+        - Research
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResearchRequest'
+            examples:
+              simple_question:
+                summary: Simple research question
+                value:
+                  question: "What are the side effects of metformin?"
+              file_analysis:
+                summary: Research with file analysis
+                value:
+                  question: "Analyze the drug data for diabetes medications"
+                  file_ids: ["diabetes_drugs.csv", "clinical_trial.pdf"]
+              complex_query:
+                summary: Complex multi-part question
+                value:
+                  question: "Compare the efficacy and safety profiles of GLP-1 agonists vs traditional insulin therapy for Type 2 diabetes management"
+      responses:
+        '200':
+          description: Research completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResearchResponse'
+              example:
+                success: true
+                final_answer: "### Metformin Side Effects\n\nMetformin is generally well-tolerated, but common side effects include..."
+                agent_steps:
+                  - step_number: 1
+                    agent_name: "Analyst"
+                    action_type: "analysis"
+                    content: "I'll research the side effects of metformin..."
+                    timestamp: "2025-01-01T12:00:00.000Z"
+                    tool_used: null
+                    tool_parameters: null
+                    tool_result: null
+                sources_used: ["web_search"]
+                processing_time_seconds: 15.34
+                total_agent_turns: 3
+                llm_calls_made: 5
+                errors_encountered: []
+                warnings: []
+        '400':
+          description: Bad request (invalid input)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                detail: "Question cannot be empty"
+        '503':
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                detail: "Service unavailable: Missing configuration for OpenAI API key"
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /:
+    get:
+      summary: API Information
+      description: Get basic information about the API and available endpoints
+      operationId: getApiInfo
+      tags:
+        - Info
+      responses:
+        '200':
+          description: API information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiInfoResponse'
+
+components:
+  schemas:
+    ResearchRequest:
+      type: object
+      required:
+        - question
+      properties:
+        question:
+          type: string
+          description: Natural language research question
+          minLength: 1
+          maxLength: 5000
+          example: "What are the latest advancements in AI for drug discovery?"
+        file_ids:
+          type: array
+          description: Optional list of file IDs from Supabase storage to analyze
+          items:
+            type: string
+          maxItems: 10
+          example: ["research_paper.pdf", "drug_data.csv"]
+
+    ResearchResponse:
+      type: object
+      required:
+        - success
+        - final_answer
+        - agent_steps
+        - sources_used
+        - processing_time_seconds
+        - total_agent_turns
+        - llm_calls_made
+        - errors_encountered
+        - warnings
+      properties:
+        success:
+          type: boolean
+          description: Whether the research completed successfully
+          example: true
+        final_answer:
+          type: string
+          description: Final Markdown-formatted research answer
+          example: "### Latest Advancements in AI for Drug Discovery\n\nRecent developments include..."
+        agent_steps:
+          type: array
+          description: Detailed step-by-step agent reasoning process
+          items:
+            $ref: '#/components/schemas/AgentStep'
+        sources_used:
+          type: array
+          description: List of tools/sources used during research
+          items:
+            type: string
+            enum: ["web_search", "query_csv", "read_pdf", "query_database"]
+          example: ["web_search", "query_csv"]
+        processing_time_seconds:
+          type: number
+          format: float
+          description: Total processing time in seconds
+          example: 15.34
+        total_agent_turns:
+          type: integer
+          description: Number of agent conversation turns
+          example: 3
+        llm_calls_made:
+          type: integer
+          description: Number of LLM API calls made
+          example: 5
+        errors_encountered:
+          type: array
+          description: List of errors encountered during processing
+          items:
+            type: string
+          example: []
+        warnings:
+          type: array
+          description: List of warnings generated during processing
+          items:
+            type: string
+          example: []
+
+    AgentStep:
+      type: object
+      required:
+        - step_number
+        - agent_name
+        - action_type
+        - content
+        - timestamp
+      properties:
+        step_number:
+          type: integer
+          description: Sequential step number
+          example: 1
+        agent_name:
+          type: string
+          description: Name of the agent that performed this step
+          enum: ["Analyst", "DataRunner", "Writer"]
+          example: "Analyst"
+        action_type:
+          type: string
+          description: Type of action performed
+          enum: ["analysis", "tool_execution", "synthesis", "conversation"]
+          example: "analysis"
+        content:
+          type: string
+          description: Description of what the agent did in this step
+          example: "I will analyze your question about AI in drug discovery..."
+        timestamp:
+          type: string
+          format: date-time
+          description: When this step occurred
+          example: "2025-01-01T12:00:00.000Z"
+        tool_used:
+          type: string
+          nullable: true
+          description: Name of tool used (if any)
+          enum: ["web_search", "query_csv", "read_pdf", "query_database"]
+          example: "web_search"
+        tool_parameters:
+          type: object
+          nullable: true
+          description: Parameters passed to the tool
+          additionalProperties: true
+          example:
+            query: "AI drug discovery 2024"
+            max_results: 10
+        tool_result:
+          type: string
+          nullable: true
+          description: Result returned by the tool
+          example: "Found 15 relevant articles about AI in drug discovery..."
+
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - timestamp
+        - services
+      properties:
+        status:
+          type: string
+          enum: ["healthy", "unhealthy"]
+          description: Overall service health status
+          example: "healthy"
+        timestamp:
+          type: string
+          format: date-time
+          description: Timestamp of health check
+          example: "2025-01-01T12:00:00.000Z"
+        services:
+          type: object
+          description: Status of individual service dependencies
+          properties:
+            supabase:
+              type: string
+              enum: ["connected", "not configured", "error"]
+              example: "connected"
+            openai:
+              type: string
+              enum: ["configured", "not configured"]
+              example: "configured"
+            tavily:
+              type: string
+              enum: ["configured", "not configured"]
+              example: "configured"
+
+    ApiInfoResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "Welcome to PharmaDB Deep-Research Micro-Service"
+        status:
+          type: string
+          example: "operational"
+        endpoints:
+          type: object
+          properties:
+            research:
+              type: string
+              example: "/api/v1/research"
+            docs:
+              type: string
+              example: "/docs"
+            health:
+              type: string
+              example: "/health"
+
+    ErrorResponse:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: string
+          description: Human-readable error message
+          example: "Question cannot be empty"
+
+  examples:
+    SimpleResearchRequest:
+      summary: Simple research question
+      value:
+        question: "What are the side effects of metformin?"
+
+    FileAnalysisRequest:
+      summary: Research with file analysis
+      value:
+        question: "Analyze the drug data for diabetes medications"
+        file_ids: ["diabetes_drugs.csv", "clinical_trial.pdf"]
+
+    ComplexResearchRequest:
+      summary: Complex multi-part question
+      value:
+        question: "Compare the efficacy and safety profiles of GLP-1 agonists vs traditional insulin therapy for Type 2 diabetes management"
+
+tags:
+  - name: Research
+    description: AI-powered research operations
+  - name: Health
+    description: Service health monitoring
+  - name: Info
+    description: API information and metadata
+
+externalDocs:
+  description: Full Integration Guide
+  url: https://github.com/your-repo/API_INTEGRATION_GUIDE.md 

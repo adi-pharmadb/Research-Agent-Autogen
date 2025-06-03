@@ -15,118 +15,228 @@
   <strong>Important:</strong> This is the official project. We are not affiliated with any fork or startup. See our <a href="https://x.com/pyautogen/status/1857264760951296210">statement</a>.
 </div>
 
-# AutoGen
+# PharmaDB Research Agent - AutoGen Multi-Agent System
 
-**AutoGen** is a framework for creating multi-agent AI applications that can act autonomously or work alongside humans.
+![AutoGen](https://img.shields.io/badge/AutoGen-v0.4-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-Latest-green)
+![Python](https://img.shields.io/badge/Python-3.11+-blue)
+![Deployment](https://img.shields.io/badge/Deployment-Render-purple)
 
-## Installation
+An intelligent pharmaceutical research microservice powered by Microsoft AutoGen multi-agent AI system. This service provides deep research capabilities for drug discovery, regulatory analysis, and pharmaceutical data processing.
 
-AutoGen requires **Python 3.10 or later**.
+## 🚀 **LIVE API & Integration Ready**
+
+**Production URL**: `https://pharmadb-research-agent-autogent.onrender.com`
+
+**Status**: ✅ **PRODUCTION READY** - Stateless, concurrent-safe, multiple users supported
+
+## 📋 Quick Start for Main App Integration
+
+### 1. **Test the API** (Main App Developer)
 
 ```bash
-# Install AgentChat and OpenAI client from Extensions
-pip install -U "autogen-agentchat" "autogen-ext[openai]"
+# Install test dependencies
+pip install httpx
+
+# Test the integration
+python test_integration.py --url https://pharmadb-research-agent-autogent.onrender.com
+
+# Check health
+curl https://pharmadb-research-agent-autogent.onrender.com/health
 ```
 
-The current stable version is v0.4. If you are upgrading from AutoGen v0.2, please refer to the [Migration Guide](https://microsoft.github.io/autogen/stable/user-guide/agentchat-user-guide/migration-guide.html) for detailed instructions on how to update your code and configurations.
-
-```bash
-# Install AutoGen Studio for no-code GUI
-pip install -U "autogenstudio"
-```
-
-## Quickstart
-
-### Hello World
-
-Create an assistant agent using OpenAI's GPT-4o model. See [other supported models](https://microsoft.github.io/autogen/stable/user-guide/agentchat-user-guide/tutorial/models.html).
+### 2. **Basic Integration Example**
 
 ```python
-import asyncio
-from autogen_agentchat.agents import AssistantAgent
-from autogen_ext.models.openai import OpenAIChatCompletionClient
+import httpx
 
-async def main() -> None:
-    model_client = OpenAIChatCompletionClient(model="gpt-4o")
-    agent = AssistantAgent("assistant", model_client=model_client)
-    print(await agent.run(task="Say 'Hello World!'"))
-    await model_client.close()
+async def call_research_service(question: str, files: list = None):
+    async with httpx.AsyncClient(timeout=300) as client:
+        response = await client.post(
+            "https://pharmadb-research-agent-autogent.onrender.com/api/v1/research",
+            json={"question": question, "file_ids": files}
+        )
+        return response.json()
 
-asyncio.run(main())
+# Example usage
+result = await call_research_service("What are the side effects of metformin?")
+print(result["final_answer"])  # Markdown-formatted research answer
 ```
 
-### Web Browsing Agent Team
+### 3. **API Endpoints**
 
-Create a group chat team with a web surfer agent and a user proxy agent
-for web browsing tasks. You need to install [playwright](https://playwright.dev/python/docs/library).
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Check service health and configuration |
+| `/api/v1/research` | POST | Submit research questions with optional files |
+| `/docs` | GET | Interactive API documentation |
 
-```python
-# pip install -U autogen-agentchat autogen-ext[openai,web-surfer]
-# playwright install
-import asyncio
-from autogen_agentchat.agents import UserProxyAgent
-from autogen_agentchat.conditions import TextMentionTermination
-from autogen_agentchat.teams import RoundRobinGroupChat
-from autogen_agentchat.ui import Console
-from autogen_ext.models.openai import OpenAIChatCompletionClient
-from autogen_ext.agents.web_surfer import MultimodalWebSurfer
+## 📚 Complete Integration Documentation
 
-async def main() -> None:
-    model_client = OpenAIChatCompletionClient(model="gpt-4o")
-    # The web surfer will open a Chromium browser window to perform web browsing tasks.
-    web_surfer = MultimodalWebSurfer("web_surfer", model_client, headless=False, animate_actions=True)
-    # The user proxy agent is used to get user input after each step of the web surfer.
-    # NOTE: you can skip input by pressing Enter.
-    user_proxy = UserProxyAgent("user_proxy")
-    # The termination condition is set to end the conversation when the user types 'exit'.
-    termination = TextMentionTermination("exit", sources=["user_proxy"])
-    # Web surfer and user proxy take turns in a round-robin fashion.
-    team = RoundRobinGroupChat([web_surfer, user_proxy], termination_condition=termination)
-    try:
-        # Start the team and wait for it to terminate.
-        await Console(team.run_stream(task="Find information about AutoGen and write a short summary."))
-    finally:
-        await web_surfer.close()
-        await model_client.close()
+### For Main App Developers:
 
-asyncio.run(main())
+1. **[API Integration Guide](API_INTEGRATION_GUIDE.md)** - Complete integration instructions with code examples
+2. **[OpenAPI Specification](openapi.yaml)** - Formal API documentation 
+3. **[Scaling Recommendations](SCALING_RECOMMENDATIONS.md)** - Production optimization guidance
+4. **[Integration Test Script](test_integration.py)** - Test your integration
+
+### Key Features for Integration:
+
+✅ **Stateless Design** - Multiple users can call API concurrently  
+✅ **Comprehensive Error Handling** - Graceful failure modes  
+✅ **Markdown Responses** - Rich formatted research answers  
+✅ **File Analysis Support** - CSV, PDF processing via Supabase  
+✅ **Web Search Integration** - Real-time information gathering  
+✅ **Agent Transparency** - Step-by-step reasoning included  
+
+## 🏗️ Architecture Overview
+
+```
+Main App → HTTP Request → PharmaDB Research Microservice
+                           ├── Analyst Agent (Question Analysis)
+                           ├── DataRunner Agent (Tool Execution)
+                           └── Writer Agent (Response Synthesis)
+                           
+Tools Available:
+├── Web Search (Tavily API)
+├── CSV Query (DuckDB + Pandas)
+├── PDF Reading (pdfplumber)
+└── Database Query (Supabase)
 ```
 
-### AutoGen Studio
+## 🛠️ Local Development
 
-Use AutoGen Studio to prototype and run multi-agent workflows without writing code.
+### Prerequisites
+- Python 3.11+
+- Virtual environment
+- Required API keys (OpenAI, Tavily, Supabase)
+
+### Setup
+```bash
+# Clone and setup
+git clone <repository>
+cd PharmaDB-research-agent-autogent
+
+# Create virtual environment
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Setup environment variables
+cp sample.env .env.local
+# Edit .env.local with your API keys
+
+# Run locally
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### Environment Variables Required
+```bash
+OPENAI_API_KEY=your_openai_api_key
+TAVILY_API_KEY=your_tavily_api_key
+SUPABASE_URL=your_supabase_url
+SUPABASE_KEY=your_supabase_anon_key
+SUPABASE_BUCKET_NAME=pharma_research_files
+```
+
+## 🧪 Testing
 
 ```bash
-# Run AutoGen Studio on http://localhost:8080
-autogenstudio ui --port 8080 --appdir ./my-app
+# Run all tests
+python run_tests.py
+
+# Run specific test categories
+pytest tests/test_api.py -v          # API endpoint tests
+pytest tests/test_tools.py -v        # Tool functionality tests  
+pytest tests/test_integration.py -v  # Integration tests
+
+# Test live API integration
+python test_integration.py --url https://pharmadb-research-agent-autogent.onrender.com
 ```
 
-## Why Use AutoGen?
+## 🎯 Example Use Cases
 
-<div align="center">
-  <img src="autogen-landing.jpg" alt="AutoGen Landing" width="500">
-</div>
+### Pharmaceutical Research
+```python
+# Drug information queries
+await research("What are the contraindications for warfarin?")
 
-The AutoGen ecosystem provides everything you need to create AI agents, especially multi-agent workflows -- framework, developer tools, and applications.
+# Regulatory research  
+await research("What are FDA requirements for clinical trial Phase II?")
 
-The _framework_ uses a layered and extensible design. Layers have clearly divided responsibilities and build on top of layers below. This design enables you to use the framework at different levels of abstraction, from high-level APIs to low-level components.
+# Drug discovery
+await research("Latest developments in CRISPR for genetic disorders 2024")
+```
 
-- [Core API](./python/packages/autogen-core/) implements message passing, event-driven agents, and local and distributed runtime for flexibility and power. It also support cross-language support for .NET and Python.
-- [AgentChat API](./python/packages/autogen-agentchat/) implements a simpler but opinionated API for rapid prototyping. This API is built on top of the Core API and is closest to what users of v0.2 are familiar with and supports common multi-agent patterns such as two-agent chat or group chats.
-- [Extensions API](./python/packages/autogen-ext/) enables first- and third-party extensions continuously expanding framework capabilities. It support specific implementation of LLM clients (e.g., OpenAI, AzureOpenAI), and capabilities such as code execution.
+### Data Analysis
+```python
+# CSV data analysis
+await research(
+    "Find all antidiabetic drugs with price under $100", 
+    file_ids=["drug_database.csv"]
+)
 
-The ecosystem also supports two essential _developer tools_:
+# PDF document analysis
+await research(
+    "Summarize the key findings from this clinical trial",
+    file_ids=["clinical_study.pdf"] 
+)
+```
 
-<div align="center">
-  <img src="https://media.githubusercontent.com/media/microsoft/autogen/refs/heads/main/python/packages/autogen-studio/docs/ags_screen.png" alt="AutoGen Studio Screenshot" width="500">
-</div>
+## 📊 Performance & Scaling
 
-- [AutoGen Studio](./python/packages/autogen-studio/) provides a no-code GUI for building multi-agent applications.
-- [AutoGen Bench](./python/packages/agbench/) provides a benchmarking suite for evaluating agent performance.
+- **Response Time**: 10-30 seconds (simple) | 1-5 minutes (complex)
+- **Concurrent Users**: 10-20 per instance | 200+ with load balancing
+- **Memory Usage**: ~50-100MB per request
+- **Stateless Design**: Horizontally scalable
 
-You can use the AutoGen framework and developer tools to create applications for your domain. For example, [Magentic-One](./python/packages/magentic-one-cli/) is a state-of-the-art multi-agent team built using AgentChat API and Extensions API that can handle a variety of tasks that require web browsing, code execution, and file handling.
+## 🔒 Security & Production
 
-With AutoGen you get to join and contribute to a thriving ecosystem. We host weekly office hours and talks with maintainers and community. We also have a [Discord server](https://aka.ms/autogen-discord) for real-time chat, GitHub Discussions for Q&A, and a blog for tutorials and updates.
+- **API Keys**: Secured via environment variables
+- **Input Validation**: Request sanitization and limits
+- **Error Handling**: No sensitive data in error responses  
+- **Rate Limiting**: Recommended for production use
+- **CORS**: Configurable for frontend integration
+
+## 🚀 Deployment
+
+### Render (Current Production)
+Deployed at: `https://pharmadb-research-agent-autogent.onrender.com`
+
+Auto-deploys from main branch with environment variables configured.
+
+### Docker Deployment
+```bash
+# Build image
+docker build -t pharma-research-api .
+
+# Run container
+docker run -p 8000:8000 --env-file .env pharma-research-api
+```
+
+## 📞 Support & Contributing
+
+### For Main App Integration Issues:
+1. Test with `test_integration.py` first
+2. Check the `/health` endpoint
+3. Review `API_INTEGRATION_GUIDE.md`
+4. Verify timeout settings (recommend 300s)
+
+### For Development:
+- Follow coding preferences in `.cursor/rules/`
+- Always add tests for new features  
+- Use proper git commit messages with author details
+- Keep functions under 200-300 lines
+
+## 📄 License
+
+MIT License - See [LICENSE](LICENSE) for details.
+
+---
+
+**Ready to integrate!** This microservice is production-ready and designed for seamless integration with your main pharmaceutical application. The stateless architecture ensures multiple users can research concurrently without conflicts.
 
 ## Where to go next?
 
