@@ -268,126 +268,107 @@ async def generate_research_answer_with_data(question: str, file_ids: List[str],
         context = "\n\n".join(context_parts) if context_parts else "No specific data available."
         
         # Create a comprehensive prompt with real data
-        base_system_prompt = "You are a pharmaceutical research expert."
+        base_system_prompt = "You are a pharmaceutical research expert. Provide detailed, evidence-based analysis of the data. Synthesize information from multiple sources to answer the question comprehensively. Focus on extracting key insights and presenting them in a clear, structured format."
         
         if system_prompt:
             # Use custom system prompt if provided
             base_system_prompt = system_prompt
         
-        prompt_parts = [base_system_prompt]
+        # Create system message with the system prompt
+        system_message = {
+            "role": "system",
+            "content": base_system_prompt
+        }
+        
+        # Create user message with the question and context
+        user_message_parts = []
         
         if conversation_context:
-            prompt_parts.append(f"\n**Previous Conversation Context:**\n{conversation_context}")
+            user_message_parts.append(f"## Previous Conversation Context:\n{conversation_context}\n")
         
-        prompt_parts.append(f"Based on the provided data, answer this research question comprehensively:")
-        prompt_parts.append(f"\n**Question:** {question}")
-        prompt_parts.append(f"\n**Available Data:**\n{context}")
+        user_message_parts.append(f"## Research Question:\n{question}\n")
+        user_message_parts.append(f"## Available Data:\n{context}\n")
         
-        if conversation_context:
-            prompt_parts.append(f"\n**Instructions:**")
-            prompt_parts.append("1. Consider the previous conversation context when formulating your response")
-            prompt_parts.append("2. Build upon previous discussion points where relevant")
-            prompt_parts.append("3. Analyze the provided data thoroughly")
-            prompt_parts.append("4. Answer the question directly using the information found") 
-            prompt_parts.append("5. Highlight key findings and insights")
-            prompt_parts.append("6. If the data is insufficient, clearly state what additional information would be helpful")
-            prompt_parts.append("7. Format your response in clear Markdown with appropriate headers")
-        else:
-            prompt_parts.append(f"\n**Instructions:**")
-            prompt_parts.append("1. Analyze the provided data thoroughly")
-            prompt_parts.append("2. Answer the question directly using the information found")
-            prompt_parts.append("3. Highlight key findings and insights")
-            prompt_parts.append("4. If the data is insufficient, clearly state what additional information would be helpful")
-            prompt_parts.append("5. Format your response in clear Markdown with appropriate headers")
+        user_message_parts.append("## Instructions:")
+        user_message_parts.append("1. Analyze the provided data thoroughly and extract key insights")
+        user_message_parts.append("2. Answer the research question directly and comprehensively")
+        user_message_parts.append("3. Synthesize information from all sources to form a coherent analysis")
+        user_message_parts.append("4. Provide specific numbers, statistics, and facts when available")
+        user_message_parts.append("5. If the data is insufficient, clearly state what information is missing")
+        user_message_parts.append("6. Format your response in clear Markdown with appropriate headers")
+        user_message_parts.append("7. Focus on providing actionable insights and conclusions")
         
-        prompt_parts.append("\nProvide a comprehensive, evidence-based response using the actual data provided above.")
+        user_message = {
+            "role": "user",
+            "content": "\n".join(user_message_parts)
+        }
         
-        prompt = "\n".join(prompt_parts)
-
-        # Try to get LLM response (simplified for now)
-        # In a full implementation, you'd use the model_client properly
+        # Create the messages array for the API call
+        messages = [system_message, user_message]
         
-        # For now, create a structured response based on the available data
-        if file_results or (web_results and "Error" not in web_results and "web search failed" not in web_results.lower()):
-            response_parts = []
+        try:
+            # Actually use the model_client to get a response
+            response = await model_client.create(messages=messages)
             
-            # Add context awareness to the response title
-            if conversation_context:
-                response_parts.append(f"# Continued Research Analysis: {question}")
-                response_parts.append("*Building on our previous conversation*")
-                response_parts.append("")
+            # Extract the content from the response
+            if response and response.choices and len(response.choices) > 0:
+                analysis = response.choices[0].message.content
+                return analysis
             else:
-                response_parts.append(f"# Research Analysis: {question}")
-            
-            # Add system prompt context if specialized
-            if system_prompt and len(system_prompt) > 100:  # Only if it's a substantial custom prompt
-                response_parts.append(f"*Analysis from specialized perspective: {system_prompt[:80]}...*")
-                response_parts.append("")
-            
-            if web_results and "Error" not in web_results and "web search failed" not in web_results.lower():
-                response_parts.append("## Web Research Findings")
-                response_parts.append(web_results)
-                response_parts.append("")
-            
-            if file_results:
-                response_parts.append("## File Analysis Results")
-                for result in file_results:
-                    response_parts.append(result)
-                    response_parts.append("")
-            
-            response_parts.append("## Summary")
-            
-            if conversation_context:
-                response_parts.append(f"Continuing from our previous discussion, I've analyzed additional information to address your follow-up question: **{question}**")
-            else:
-                response_parts.append(f"Based on the analysis above, I've found relevant information to address your question about: **{question}**")
-            
-            if file_ids:
-                response_parts.append(f"\n**Files analyzed:** {', '.join(file_ids)}")
-            
-            if conversation_context:
-                response_parts.append("\n*This analysis builds upon our previous conversation and incorporates new research findings.*")
-            else:
-                response_parts.append("\n*This analysis is based on current data from web sources and uploaded files.*")
-            
-            return "\n".join(response_parts)
-        else:
-            # Debug output to understand why we're falling back
-            debug_info = f"""
-            DEBUG INFO:
-            - file_results: {len(file_results) if file_results else 0} results
-            - web_results length: {len(web_results) if web_results else 0}
-            - web_results contains 'Error': {'Error' in web_results if web_results else 'N/A'}
-            - web_results preview: {web_results[:200] if web_results else 'None'}...
-            """
-            print(debug_info)
-            
-            return f"""# Research Analysis: {question}
+                # Fallback if the response format is unexpected
+                return f"""# Research Analysis: {question}
 
-## Status  
-I apologize, but I encountered issues accessing both web search and file analysis capabilities for your question.
-
-## Debug Information
-- File results available: {len(file_results) if file_results else 0}
-- Web results available: {len(web_results) if web_results else 0} characters
-- Web results preview: {web_results[:200] if web_results else 'None'}...
+## Analysis
+I was unable to generate a comprehensive analysis due to an issue with the AI model response format.
 
 ## Question
 **{question}**
 
-## Issues Encountered
-- Web search may have failed or returned no results
-- File analysis may have encountered errors
+## Available Data Summary
+- Web search results available: {'Yes' if web_results and "Error" not in web_results else 'No'}
+- File analysis results available: {'Yes' if file_results else 'No'}
 
-## Recommendations
-1. Check that all required API keys are properly configured
-2. Verify that uploaded files are accessible
-3. Try rephrasing your question for better search results
-4. Consider providing more specific context or keywords
-
-For immediate assistance, please consult relevant pharmaceutical databases, research publications, or expert sources in the field."""
+Please try again or contact support if this issue persists."""
+                
+        except Exception as api_error:
+            print(f"Error calling LLM API: {str(api_error)}")
+            
+            # Fallback to a simplified analysis if the API call fails
+            simplified_analysis_parts = []
+            
+            # Add title
+            simplified_analysis_parts.append(f"# Research Analysis: {question}")
+            simplified_analysis_parts.append("")
+            
+            # Add system prompt context if specialized
+            if system_prompt:
+                simplified_analysis_parts.append(f"*Analysis from specialized perspective based on provided expertise*")
+                simplified_analysis_parts.append("")
+            
+            # Add data sections
+            if web_results and "Error" not in web_results:
+                simplified_analysis_parts.append("## Key Information from Web Research")
+                simplified_analysis_parts.append("Based on the web search results, here are the key points relevant to your question:")
+                simplified_analysis_parts.append("")
+                simplified_analysis_parts.append("- The search results contain information about your query but require expert analysis")
+                simplified_analysis_parts.append("- I'm unable to provide that analysis due to a technical issue with our AI processing")
+                simplified_analysis_parts.append("")
+            
+            if file_results:
+                simplified_analysis_parts.append("## File Analysis")
+                simplified_analysis_parts.append("Your uploaded files contain relevant data that would help answer this question.")
+                simplified_analysis_parts.append("")
+            
+            # Add conclusion
+            simplified_analysis_parts.append("## Conclusion")
+            simplified_analysis_parts.append(f"I apologize, but I encountered an issue while analyzing the data for your question about **{question}**. The system was able to gather relevant information, but the AI analysis component experienced a technical problem.")
+            simplified_analysis_parts.append("")
+            simplified_analysis_parts.append("Please try again or contact support if this issue persists.")
+            
+            return "\n".join(simplified_analysis_parts)
         
     except Exception as e:
+        print(f"Error in generate_research_answer_with_data: {str(e)}")
         return f"""# Research Response Error
 
 I encountered an error while generating the research response for: **{question}**
@@ -399,7 +380,6 @@ I encountered an error while generating the research response for: **{question}*
 2. Check file accessibility and format
 3. Try a simpler question format
 4. Contact support if the issue persists"""
-
 # Legacy function for backwards compatibility
 async def run_research_flow(user_question: str, file_ids: Union[List[str], None] = None, llm_config: Union[dict, bool, None] = None) -> str:
     """Legacy function that returns just the final answer string."""
