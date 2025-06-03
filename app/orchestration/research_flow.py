@@ -5,7 +5,7 @@ import json
 from typing import Union, List, Dict, Any
 from datetime import datetime
 from autogen_agentchat.agents import AssistantAgent  # Updated for new package structure
-from autogen_ext.models.openai import OpenAIChatCompletionClient
+import openai
 import asyncio
 import time
 
@@ -68,11 +68,7 @@ async def run_research_flow_with_tracking(question: str, file_ids: List[str] = N
     
     try:
         # Create model client for v0.4
-        model_client = OpenAIChatCompletionClient(
-            model="gpt-4",
-            api_key=settings.OPENAI_API_KEY,
-            temperature=0.1
-        )
+        model_client = openai.AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
         
         # Initialize tracking variables
         agent_steps = []
@@ -206,8 +202,6 @@ async def run_research_flow_with_tracking(question: str, file_ids: List[str] = N
         
         processing_time = time.time() - start_time
         
-        await model_client.close()
-        
         return {
             "success": True,
             "final_answer": research_result,
@@ -308,7 +302,12 @@ async def generate_research_answer_with_data(question: str, file_ids: List[str],
         
         try:
             # Actually use the model_client to get a response
-            response = await model_client.create(messages=messages)
+            response = await model_client.chat.completions.create(
+                model="gpt-4",
+                messages=messages,
+                temperature=0.1,
+                max_tokens=2000
+            )
             
             # Extract the content from the response
             if response and response.choices and len(response.choices) > 0:
