@@ -252,10 +252,10 @@ Provide a comprehensive, evidence-based response using the actual data provided 
         # In a full implementation, you'd use the model_client properly
         
         # For now, create a structured response based on the available data
-        if file_results or (web_results and "Error" not in web_results):
+        if file_results or (web_results and "Error" not in web_results and "web search failed" not in web_results.lower()):
             response_parts = [f"# Research Analysis: {question}"]
             
-            if web_results and "Error" not in web_results:
+            if web_results and "Error" not in web_results and "web search failed" not in web_results.lower():
                 response_parts.append("## Web Research Findings")
                 response_parts.append(web_results)
                 response_parts.append("")
@@ -276,10 +276,25 @@ Provide a comprehensive, evidence-based response using the actual data provided 
             
             return "\n".join(response_parts)
         else:
+            # Debug output to understand why we're falling back
+            debug_info = f"""
+            DEBUG INFO:
+            - file_results: {len(file_results) if file_results else 0} results
+            - web_results length: {len(web_results) if web_results else 0}
+            - web_results contains 'Error': {'Error' in web_results if web_results else 'N/A'}
+            - web_results preview: {web_results[:200] if web_results else 'None'}...
+            """
+            print(debug_info)
+            
             return f"""# Research Analysis: {question}
 
-## Status
+## Status  
 I apologize, but I encountered issues accessing both web search and file analysis capabilities for your question.
+
+## Debug Information
+- File results available: {len(file_results) if file_results else 0}
+- Web results available: {len(web_results) if web_results else 0} characters
+- Web results preview: {web_results[:200] if web_results else 'None'}...
 
 ## Question
 **{question}**
