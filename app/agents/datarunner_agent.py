@@ -1,4 +1,4 @@
-from autogen_agentchat import UserProxyAgent
+from autogen_agentchat.agents import UserProxyAgent
 from app.tools import data_processing_tools # Import the module
 
 class DataRunnerAgent(UserProxyAgent):

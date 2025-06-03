@@ -1,4 +1,4 @@
-from autogen_agentchat import AssistantAgent
+from autogen_agentchat.agents import AssistantAgent
 
 class WriterAgent(AssistantAgent):
     def __init__(self, name="PharmaDB_Writer", llm_config=None, **kwargs):
