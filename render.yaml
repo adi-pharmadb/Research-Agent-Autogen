@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: pharmadb-research-microservice
+    env: python
+    region: oregon
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.4
+      - key: OPENAI_API_KEY
+        sync: false  # Set this in Render dashboard
+      - key: SUPABASE_URL
+        sync: false  # Set this in Render dashboard
+      - key: SUPABASE_KEY
+        sync: false  # Set this in Render dashboard
+      - key: TAVILY_API_KEY
+        sync: false  # Set this in Render dashboard
+      - key: SUPABASE_BUCKET_NAME
+        sync: false  # Set this in Render dashboard
+    healthCheckPath: /health 
