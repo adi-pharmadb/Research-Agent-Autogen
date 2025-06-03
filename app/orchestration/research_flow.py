@@ -291,8 +291,8 @@ Thank you for your understanding."""
 # Legacy function for backwards compatibility
 async def run_research_flow(user_question: str, file_ids: Union[List[str], None] = None, llm_config: Union[dict, bool, None] = None) -> str:
     """Legacy function that returns just the final answer string."""
-    result = await run_research_flow_with_tracking(user_question, file_ids)
-    return result["result"]
+    result = await run_research_flow_with_tracking(question=user_question, file_ids=file_ids)
+    return result["final_answer"]
 
 # Example for direct testing of this flow (requires proper LLM config and .env setup)
 async def main_test_flow():
