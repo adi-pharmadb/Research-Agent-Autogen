@@ -1,0 +1,33 @@
+fastapi
+uvicorn[standard]
+python-dotenv
+
+# AutoGen and its dependencies will be added later in Phase 2
+# autogen-agentchat
+# autogen-ext[openai]
+autogen-agentchat>=0.2.40
+
+# Data tool dependencies
+# duckdb-engine  # For DuckDB, or direct duckdb if wasm isn't used via python
+# pdfplumber
+# tavily-python # Tavily API client
+duckdb>=0.9.0
+pdfplumber
+tavily-python
+pandas
+
+# Enhanced PDF processing
+tiktoken>=0.5.0
+openai>=1.0.0
+
+# Supabase client
+# supabase
+supabase
+
+# Redis client (optional)
+# redis
+
+# Testing dependencies
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+pytest-mock>=3.10.0 

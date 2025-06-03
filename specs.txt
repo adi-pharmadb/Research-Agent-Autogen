@@ -1,0 +1,90 @@
+# PharmaDB • Deep-Research Micro-Service (AutoGen)
+
+## 1. Goal
+Expose a single `/research` HTTP endpoint that lets the frontend send a natural-language question plus optional file IDs.  
+The service decides which tool(s) to run—DuckDB for CSV, PDF vector search, or live web search—and returns a Markdown answer.
+
+---
+
+## 2. Tech Stack
+| Layer | Choice | Notes |
+|-------|--------|-------|
+| Orchestration | **AutoGen (v 0.2+)** | multi-role agent: `Analyst`, `DataRunner`, `Writer` |
+| API | **FastAPI** | async; easy to Dockerize |
+| Data tools | DuckDB-WASM (CSV) · pdfplumber (PDF) · Tavily API (web) |
+| Store | Supabase (files) · Redis (optional chat history) |
+| Hosting | Render (Docker) or k8s (HPA) |
+
+---
+
+## 3. Roles & Tools
+```python
+@tool
+def query_csv(file_id:str, sql:str)->str: ...
+
+@tool
+def read_pdf(file_id:str)->str: ...
+
+@tool
+def web_search(query:str)->str: ...
+
+```
+
+---
+
+## 4. Implementation Task List
+
+### Phase 1: Project Setup & Core Infrastructure
+- [x] Initialize FastAPI application structure.
+- [x] Create a `Dockerfile` for the service.
+- [x] Integrate Supabase Python client for file interactions (fetching files based on `file_id`).
+- [ ] (Optional) Set up Redis client and integration for chat history caching. <!-- Deferring for now -->
+- [x] Define basic project configuration (e.g., for API keys, Supabase URL/key).
+
+### Phase 2: AutoGen Agent & Tool Implementation
+- [x] **Agent Definitions:** <!-- Basic classes created -->
+    - [x] Define `Analyst` agent <!-- Created: app/agents/analyst_agent.py -->
+    - [x] Define `DataRunner` agent <!-- Created: app/agents/datarunner_agent.py -->
+    - [x] Define `Writer` agent <!-- Created: app/agents/writer_agent.py -->
+- [x] **Tool Functions (`@tool` decorated):** <!-- Stubs created in app/tools/data_processing_tools.py -->
+    - [ ] Implement `query_csv(file_id: str, sql: str) -> str` <!-- First pass complete -->
+        - Fetch CSV file content from Supabase using `file_id`.
+        - Use DuckDB-WASM to execute the `sql` query against the CSV data.
+        - Return query results as a string (e.g., Markdown table or formatted text).
+    - [ ] Implement `read_pdf(file_id: str) -> str`: <!-- First pass complete -->
+        - Fetch PDF file from Supabase using `file_id`.
+        - Use `pdfplumber` to extract text content.
+        - (Stretch Goal: If implementing PDF vector search, add steps for text chunking, embedding generation, and querying a vector store).
+        - Return extracted text.
+    - [ ] Implement `web_search(query: str) -> str`: <!-- First pass complete -->
+        - Integrate with Tavily API.
+        - Execute the search `query`.
+        - Return search results as a formatted string.
+- [x] **Agent Orchestration:** <!-- Initial flow created in app/orchestration/research_flow.py -->
+    - [x] Set up the AutoGen multi-agent configuration (e.g., `GroupChat` or a custom flow) to manage interactions between `Analyst`, `DataRunner`, and `Writer`. <!-- Initial setup done -->
+    - [x] Define how the initial research question is passed to the `Analyst`. <!-- Initial setup done -->
+
+### Phase 3: FastAPI Endpoint
+- [ ] Implement the `/research` HTTP endpoint:
+    - [ ] Define request model (natural language question, optional list of file IDs).
+    - [ ] Define response model (Markdown answer).
+    - [ ] Inside the endpoint logic:
+        - Instantiate and configure the AutoGen agent setup.
+        - Trigger the agent conversation/workflow with the user's question and file IDs.
+        - Receive the final Markdown answer from the `Writer` agent.
+        - Return the answer.
+
+### Phase 4: Testing
+- [ ] Unit tests for individual tool functions.
+- [ ] Unit tests for agent logic (if feasible, or use integration tests).
+- [ ] Integration tests for the FastAPI endpoint, simulating frontend requests.
+- [ ] End-to-end tests covering various research scenarios (CSV query, PDF reading, web search, combinations).
+
+### Phase 5: Deployment
+- [ ] Configure for Render (Docker) deployment.
+- [ ] (Alternatively) Configure for Kubernetes (k8s) deployment with HPA.
+- [ ] Set up environment variable management for production (API keys, etc.).
+
+### Phase 6: Documentation
+- [ ] Auto-generate API documentation using FastAPI's built-in features.
+- [ ] Update `README.md` with setup instructions, how to run the service, and API usage examples.
