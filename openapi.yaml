@@ -74,7 +74,13 @@ paths:
         3. Execute research using available tools
         4. Synthesize findings into a comprehensive answer
         
-        **Response Time**: 10 seconds to 5 minutes depending on complexity
+        **Response Time**: 3-8 seconds for typical queries, up to 2 minutes for complex multi-source analysis
+        
+        **Real Tool Execution:**
+        - Live Tavily web search with actual URLs and content
+        - CSV analysis using DuckDB SQL queries  
+        - PDF text extraction using pdfplumber
+        - Multi-agent workflow with detailed step tracking
         
         **Examples**:
         - "What are the side effects of metformin?"
@@ -112,20 +118,28 @@ paths:
                 $ref: '#/components/schemas/ResearchResponse'
               example:
                 success: true
-                final_answer: "### Metformin Side Effects\n\nMetformin is generally well-tolerated, but common side effects include..."
+                final_answer: "# Research Analysis: What are the latest FDA diabetes drug approvals in 2024?\n## Web Research Findings\nResult 1:\n  Title: New Indications and Dosage Forms for 2024 - Drugs.com\n  URL: https://www.drugs.com/new-indications-archive/2024.html\n  Content Snippet: June 12, 2024 · FDA Approves Xigduo XR (dapagliflozin/metformin) for Glycemic Control...\n\nResult 2:\n  Title: Understanding the 2024 FDA Approvals for New Diabetes Medications\n  URL: https://www.longislanddiabetes.org/understanding-the-2024-fda-approvals...\n  Content Snippet: The recent FDA approvals for new diabetes medications in 2024 have significant implications..."
                 agent_steps:
                   - step_number: 1
                     agent_name: "Analyst"
                     action_type: "analysis"
-                    content: "I'll research the side effects of metformin..."
+                    content: "I'm analyzing your research question about FDA diabetes drug approvals in 2024"
                     timestamp: "2025-01-01T12:00:00.000Z"
                     tool_used: null
                     tool_parameters: null
                     tool_result: null
+                  - step_number: 2
+                    agent_name: "DataRunner"
+                    action_type: "tool_execution"
+                    content: "Performing web search for relevant information"
+                    timestamp: "2025-01-01T12:00:01.000Z"
+                    tool_used: "web_search"
+                    tool_parameters: {"query": "FDA diabetes drug approvals 2024", "max_results": 10}
+                    tool_result: "Successfully gathered web search results with 5829 characters"
                 sources_used: ["web_search"]
-                processing_time_seconds: 15.34
+                processing_time_seconds: 4.15
                 total_agent_turns: 3
-                llm_calls_made: 5
+                llm_calls_made: 2
                 errors_encountered: []
                 warnings: []
         '400':
@@ -218,7 +232,7 @@ components:
           description: List of tools/sources used during research
           items:
             type: string
-            enum: ["web_search", "query_csv", "read_pdf", "query_database"]
+            enum: ["web_search", "query_csv", "read_pdf", "file_analysis"]
           example: ["web_search", "query_csv"]
         processing_time_seconds:
           type: number
