@@ -302,7 +302,7 @@ async def generate_research_answer_with_data(question: str, file_ids: List[str],
         
         try:
             # Actually use the model_client to get a response
-            primary_model = "gpt-4-turbo"  # Or your specific "gpt-4.1" identifier
+            primary_model = "gpt-4.1"  # User specified primary model
             fallback_model = "gpt-4o"
             
             models_to_try = [primary_model, fallback_model]
