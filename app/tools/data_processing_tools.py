@@ -212,117 +212,132 @@ def create_query_plan(objective: str, schema_info: CSVSchemaInfo) -> QueryPlan:
     """
     objective_lower = objective.lower()
     steps = []
-    
-    # Step 1: Always start with schema exploration for complex questions
-    if any(word in objective_lower for word in ['how many', 'count', 'companies', 'products']):
+
+    # --- NEW: Prioritize counting unique products if directly asked ---
+    product_cols = schema_info.key_columns.get('product', [])
+    if product_cols and (
+        "how many unique products" in objective_lower or 
+        "count of unique products" in objective_lower or 
+        "count unique products" in objective_lower or 
+        "total unique products" in objective_lower or 
+        "number of unique products" in objective_lower or
+        ("how many products" in objective_lower and "unique" in objective_lower)
+    ):
+        # Use the first identified product column for counting distinct products.
+        # A more advanced implementation might handle multiple product columns or allow user specification.
+        main_product_col = product_cols[0] 
         steps.append({
-            "description": "Explore CSV structure and columns",
+            "description": f"Count the total number of unique products using column '{main_product_col}'",
+            "sql": f'''SELECT COUNT(DISTINCT "{main_product_col}") AS unique_product_count FROM current_csv_table''',
+            "validation": "Should return a single row with a numerical count for unique_product_count"
+        })
+        # If this is the primary goal, we might not need other exploratory steps unless specified.
+        # For now, let's assume if this matches, it's the main query.
+
+    # Step 1 (Now potentially Step 2 or conditional): Schema exploration for broader or less direct questions
+    # Only add this if no specific unique product count was generated or if other keywords are present
+    if not steps and any(word in objective_lower for word in ['companies', 'products', 'data about', 'details on']):
+        steps.append({
+            "description": "Explore CSV structure and columns to understand data layout",
             "sql": "SELECT column_name FROM information_schema.columns WHERE table_name = 'current_csv_table'",
-            "validation": "Should return list of column names"
+            "validation": "Should return list of column names for schema understanding"
         })
     
-    # Step 2: Data exploration based on question type
+    # Step 2 (Now Step 3+): Data exploration based on question type (if not a direct unique product count)
     if 'company' in objective_lower or 'companies' in objective_lower:
         company_cols = schema_info.key_columns.get('company', [])
         if company_cols:
             main_company_col = company_cols[0]
-            steps.append({
-                "description": f"Explore company data in column '{main_company_col}'",
-                "sql": f"SELECT DISTINCT \"{main_company_col}\" FROM current_csv_table LIMIT 10",
-                "validation": "Should return list of company names"
-            })
+            # Avoid adding if a unique product count was the primary goal and already added
+            if not any("Count the total number of unique products" in step["description"] for step in steps):
+                steps.append({
+                    "description": f"Explore sample company data from column '{main_company_col}'",
+                    "sql": f'''SELECT DISTINCT "{main_company_col}" FROM current_csv_table LIMIT 10''',
+                    "validation": "Should return a sample list of company names"
+                })
     
-    # Step 3: Enhanced product-specific search in MULTIPLE columns
+    # Step 3 (Now Step 4+): Enhanced product-specific search in MULTIPLE columns
     product_mentioned = None
-    # Extract potential product names from objective
     import re
-    potential_products = re.findall(r'\b[A-Z][A-Z0-9]+\b', objective)  # All-caps words likely product names
+    potential_products = re.findall(r'\b[A-Z][A-Z0-9]{2,}\b', objective)  # All-caps words (3+ chars) likely product names
     if potential_products:
         product_mentioned = potential_products[0]
         
-        product_cols = schema_info.key_columns.get('product', [])
-        if product_cols:
-            # Search in Brand Name column
-            brand_name_col = None
-            generic_name_col = None
-            
-            for col in schema_info.columns:
-                if 'brand' in col.lower() and 'name' in col.lower():
-                    brand_name_col = col
-                elif 'generic' in col.lower() and 'name' in col.lower():
-                    generic_name_col = col
-            
-            # Search in Brand Name first
-            if brand_name_col:
+        # Only proceed if not primarily counting all unique products
+        if not any("Count the total number of unique products" in step["description"] for step in steps):
+            product_search_cols = schema_info.key_columns.get('product', [])
+            brand_name_col = next((col for col in product_search_cols if 'brand' in col.lower() and 'name' in col.lower()), None)
+            generic_name_col = next((col for col in product_search_cols if 'generic' in col.lower() and 'name' in col.lower()), None)
+
+            # Consolidate search columns, prioritize specific ones
+            search_targets = []
+            if brand_name_col: search_targets.append(brand_name_col)
+            if generic_name_col: search_targets.append(generic_name_col)
+            if not search_targets and product_search_cols: search_targets.append(product_search_cols[0]) # Fallback to first product col
+
+            for search_col in list(set(search_targets)): # Use set to avoid duplicate searches if cols overlap
                 steps.append({
-                    "description": f"Search for product '{product_mentioned}' in Brand Name column '{brand_name_col}'",
-                    "sql": f"SELECT * FROM current_csv_table WHERE UPPER(\"{brand_name_col}\") LIKE '%{product_mentioned.upper()}%' LIMIT 5",
-                    "validation": f"Should return rows with brand name '{product_mentioned}'"
-                })
-            
-            # Also search in Generic Name column (critical for generic drugs!)
-            if generic_name_col:
-                steps.append({
-                    "description": f"Search for product '{product_mentioned}' in Generic Name column '{generic_name_col}'",
-                    "sql": f"SELECT * FROM current_csv_table WHERE UPPER(\"{generic_name_col}\") LIKE '%{product_mentioned.upper()}%' LIMIT 5",
-                    "validation": f"Should return rows with generic name '{product_mentioned}'"
-                })
-            
-            # If no specific columns found, use the first product column
-            if not brand_name_col and not generic_name_col and product_cols:
-                main_product_col = product_cols[0]
-                steps.append({
-                    "description": f"Search for product '{product_mentioned}' in column '{main_product_col}'",
-                    "sql": f"SELECT * FROM current_csv_table WHERE UPPER(\"{main_product_col}\") LIKE '%{product_mentioned.upper()}%' LIMIT 5",
-                    "validation": f"Should return rows containing '{product_mentioned}'"
+                    "description": f"Search for specific product '{product_mentioned}' in column '{search_col}'",
+                    "sql": f'''SELECT * FROM current_csv_table WHERE UPPER("{search_col}") LIKE '%{product_mentioned.upper()}%' LIMIT 5''',
+                    "validation": f"Should return rows matching '{product_mentioned}' in '{search_col}'"
                 })
     
-    # Step 4: Enhanced counting with multiple column search
-    if 'how many companies' in objective_lower and product_mentioned:
+    # Step 4 (Now Step 5+): Enhanced counting of companies for a specific product
+    if product_mentioned and ('how many companies' in objective_lower or 'count companies' in objective_lower):
         company_cols = schema_info.key_columns.get('company', [])
-        
         if company_cols:
             main_company_col = company_cols[0]
             
-            # Build comprehensive WHERE clause checking multiple columns
+            # Determine product search columns again for this specific counting context
+            product_search_cols_for_company_count = schema_info.key_columns.get('product', [])
+            brand_col_for_company_count = next((col for col in product_search_cols_for_company_count if 'brand' in col.lower() and 'name' in col.lower()), None)
+            generic_col_for_company_count = next((col for col in product_search_cols_for_company_count if 'generic' in col.lower() and 'name' in col.lower()), None)
+            
             where_conditions = []
+            if brand_col_for_company_count:
+                where_conditions.append(f'''UPPER("{brand_col_for_company_count}") LIKE '%{product_mentioned.upper()}%''')
+            if generic_col_for_company_count:
+                where_conditions.append(f'''UPPER("{generic_col_for_company_count}") LIKE '%{product_mentioned.upper()}%''')
             
-            # Check Brand Name
-            brand_name_col = None
-            generic_name_col = None
-            for col in schema_info.columns:
-                if 'brand' in col.lower() and 'name' in col.lower():
-                    brand_name_col = col
-                elif 'generic' in col.lower() and 'name' in col.lower():
-                    generic_name_col = col
-            
-            if brand_name_col:
-                where_conditions.append(f"UPPER(\"{brand_name_col}\") LIKE '%{product_mentioned.upper()}%'")
-            if generic_name_col:
-                where_conditions.append(f"UPPER(\"{generic_name_col}\") LIKE '%{product_mentioned.upper()}%'")
-            
+            # Fallback if specific brand/generic columns not found but product columns exist
+            if not where_conditions and product_search_cols_for_company_count:
+                first_prod_col = product_search_cols_for_company_count[0]
+                where_conditions.append(f'''UPPER("{first_prod_col}") LIKE '%{product_mentioned.upper()}%''')
+
             if where_conditions:
                 combined_where = " OR ".join(where_conditions)
                 steps.append({
-                    "description": f"Count distinct companies that have registered {product_mentioned} (checking multiple columns)",
-                    "sql": f"SELECT COUNT(DISTINCT \"{main_company_col}\") as company_count FROM current_csv_table WHERE {combined_where}",
-                    "validation": f"Should return count of companies with {product_mentioned}"
+                    "description": f"Count distinct companies manufacturing/registering product '{product_mentioned}'",
+                    "sql": f'''SELECT COUNT(DISTINCT "{main_company_col}") AS company_count FROM current_csv_table WHERE {combined_where}''',
+                    "validation": f"Should return count of companies for '{product_mentioned}'"
                 })
-                
-                # Also get the actual company names
                 steps.append({
-                    "description": f"List companies that have registered {product_mentioned} (from all relevant columns)",
-                    "sql": f"SELECT DISTINCT \"{main_company_col}\" as company_name FROM current_csv_table WHERE {combined_where}",
-                    "validation": f"Should return names of companies with {product_mentioned}"
+                    "description": f"List distinct companies manufacturing/registering product '{product_mentioned}'",
+                    "sql": f'''SELECT DISTINCT "{main_company_col}" AS company_name FROM current_csv_table WHERE {combined_where} LIMIT 10''',
+                    "validation": f"Should return names of companies for '{product_mentioned}'"
                 })
     
-    # Determine expected result type
-    if 'how many' in objective_lower or 'count' in objective_lower:
+    # Determine expected result type based on the primary intent
+    if any("Count the total number of unique products" in step["description"] for step in steps):
+        expected_result_type = "single_numeric_value"
+    elif any("company_count" in step["sql"] for step in steps) or any("count distinct companies" in step["description"].lower() for step in steps):
         expected_result_type = "numeric_count_with_details"
-    elif 'list' in objective_lower or 'what are' in objective_lower:
+    elif any("SELECT DISTINCT" in step["sql"] for step in steps) or 'list' in objective_lower:
         expected_result_type = "list_of_items"
+    elif not steps: # If no steps could be planned (e.g., very generic objective with no keywords)
+        # Default to trying to get some general info if schema is known
+        if schema_info.columns:
+            sample_cols = '", "'.join(schema_info.columns[:3]) # Select first 3 columns as sample
+            steps.append({
+                "description": "Retrieve a small sample of general data from the CSV",
+                "sql": f'''SELECT "{sample_cols}" FROM current_csv_table LIMIT 3''',
+                "validation": "Should return a few rows of sample data"
+            })
+            expected_result_type = "general_sample_data"
+        else:
+            expected_result_type = "no_specific_plan_possible" # Should ideally not happen if schema analysis worked
     else:
-        expected_result_type = "general_information"
+        expected_result_type = "general_information" # Default for other cases
     
     return QueryPlan(
         objective=objective,
